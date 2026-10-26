@@ -1,0 +1,129 @@
+---
+# Tests QuickSpin on Windows, macOS and Linux and builds it for:
+#   Windows x86_64, macOS arm64 (Apple Silicon), Linux x86_64, Linux arm64.
+#
+# - Every push / pull request: test + build; binaries are kept as a workflow artifact.
+# - Pushing a tag like v2.3.0: the same, then a GitHub release with the binaries.
+# - Manual run (Actions → Build QuickSpin → Run workflow): build, optionally publish.
+name: Build QuickSpin
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 2.3.0). Empty = build only, no release"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    name: Test on ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        if: runner.os != 'Windows'
+        run: |
+          unformatted="$(gofmt -l .)"
+          [ -z "$unformatted" ] || { echo "::error::not gofmt-ed: $unformatted"; exit 1; }
+      - run: go vet ./...
+      - run: go test ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, for the version number
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          publish=false
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+            publish=true
+          elif [ -n "${INPUT_VERSION:-}" ]; then
+            version="${INPUT_VERSION#v}"
+            publish=true
+          else
+            version="dev-${GITHUB_SHA::7}"
+          fi
+          [[ "$version" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid version '$version'"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "QuickSpin $version (publish: $publish)"
+      - name: Build all platforms
+        run: bash scripts/build.sh "${{ steps.v.outputs.version }}" dist
+      - name: Smoke test (Linux x86_64 binary)
+        run: |
+          ./dist/quickspin-linux-x86_64 version
+          ./dist/quickspin-linux-x86_64 version | grep -F "QuickSpin ${{ steps.v.outputs.version }} "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quickspin-${{ steps.v.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: quickspin-${{ needs.build.outputs.version }}
+          path: dist
+      - name: Publish release v${{ needs.build.outputs.version }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ needs.build.outputs.version }}
+          TARGET: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'EOF'
+          | System | Download |
+          |---|---|
+          | Windows (x64) | `quickspin.exe` |
+          | macOS, Apple Silicon | `quickspin-mac-arm64` |
+          | Linux x64 | `quickspin-linux-x86_64` |
+          | Linux arm64 | `quickspin-linux-arm64` |
+
+          Put the file in its own folder and start it; see README.md for details.
+          On macOS and Linux run `chmod +x` on the file first. The macOS build is not signed:
+          right-click → Open the first time, or `xattr -d com.apple.quarantine quickspin-mac-arm64`.
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --target "$TARGET" --title "QuickSpin $TAG" --notes-file notes.md --generate-notes
+          fi

@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QuickSpin</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%233b82f6'/%3E%3Cpath d='M16 6a10 10 0 1 0 10 10h-4a6 6 0 1 1-6-6z' fill='white'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--panel2:#f1f3f6;--text:#14171c;--muted:#5f6b7a;--line:#e2e6eb;
+  --accent:#2f6fec;--accent-ink:#fff;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--chip:#eef2f7;
+  --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
+  --mono:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1216;--panel:#171b21;--panel2:#1d222a;--text:#e7eaee;--muted:#93a0b0;--line:#2a313b;
+  --accent:#4c8dff;--chip:#222831;--shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:6px 11px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+button:hover,.btn:hover{background:var(--panel2);text-decoration:none}
+button.primary,.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.primary:hover,.btn.primary:hover{filter:brightness(1.07)}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:7px 9px;width:100%}
+input:focus,select:focus{outline:2px solid color-mix(in srgb,var(--accent) 40%,transparent);border-color:var(--accent)}
+label{display:block;font-weight:600;font-size:13px;margin:12px 0 5px}
+.hint{color:var(--muted);font-size:12px;font-weight:400;margin-top:4px}
+header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar{max-width:1240px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:17px;letter-spacing:-.01em}
+.brand svg{width:26px;height:26px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border-radius:99px;padding:3px 10px;font-size:12px;color:var(--muted);cursor:pointer;border:0}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.running{background:var(--ok)}.dot.restarting,.dot.starting{background:var(--warn)}.dot.failed{background:var(--bad)}
+main{max-width:1240px;margin:0 auto;padding:20px}
+.banner{display:flex;align-items:center;gap:12px;background:color-mix(in srgb,var(--warn) 14%,var(--panel));border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);padding:10px 14px;border-radius:10px;margin-bottom:16px}
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.toolbar h1{font-size:20px;margin:0;flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card h2{font-size:16px;margin:0;display:flex;align-items:center;gap:8px;min-width:0}
+.card h2 span.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.pill.ready{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.pill.error{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+.pill.provisioning{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.domain{font-size:15px;font-weight:600}
+.meta{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12px;color:var(--muted)}
+.meta b{font-weight:500;color:var(--muted)}
+.meta code,.mono{font-family:var(--mono);font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.progress{height:6px;background:var(--panel2);border-radius:99px;overflow:hidden}
+.progress>div{height:100%;background:var(--accent);transition:width .4s}
+.progress.indet>div{width:30%!important;animation:ind 1.2s infinite ease-in-out}
+@keyframes ind{0%{margin-left:-30%}100%{margin-left:100%}}
+.step{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.err{font-size:12px;color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent);border-radius:8px;padding:8px 10px;word-break:break-word}
+.notes{font-size:12px;color:var(--muted);margin:0;padding-left:16px}
+.empty{text-align:center;padding:70px 20px;border:2px dashed var(--line);border-radius:14px;color:var(--muted)}
+.empty h2{color:var(--text);margin:0 0 6px}
+.menu{position:relative}
+.menu-list{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.18);padding:5px;min-width:210px;z-index:20;display:none}
+.menu.open .menu-list{display:block}
+.menu-list button{width:100%;border:0;justify-content:flex-start;background:none;padding:7px 10px}
+.menu-list button:hover{background:var(--panel2)}
+.menu-list hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+dialog{border:1px solid var(--line);border-radius:14px;padding:0;background:var(--panel);color:var(--text);width:min(620px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(10,14,20,.55)}
+dialog form{margin:0}
+.dhead{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.dhead h3{margin:0;font-size:16px;flex:1}
+.dbody{padding:4px 20px 18px;max-height:70vh;overflow:auto}
+.dfoot{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+.tabs{display:flex;gap:4px;background:var(--panel2);padding:4px;border-radius:9px;margin-top:14px}
+.tabs button{flex:1;border:0;background:none;justify-content:center}
+.tabs button.on{background:var(--panel);box-shadow:var(--shadow)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+details{margin-top:14px;border:1px solid var(--line);border-radius:9px;padding:4px 12px 12px}
+summary{cursor:pointer;font-weight:600;font-size:13px;padding:6px 0}
+.check{display:flex;align-items:center;gap:8px;font-weight:400;margin-top:12px}
+.check input{width:auto}
+pre.log{background:#0b0e12;color:#cfd6df;font:12px/1.5 var(--mono);padding:12px;border-radius:9px;max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:12px 0 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;margin-top:12px}
+.kv span:nth-child(odd){color:var(--muted)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:9px 16px;border-radius:9px;font-size:13px;z-index:50;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+.toast.show{opacity:1}
+@media (max-width:640px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.bar{padding:10px 16px}main{padding:16px}}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <div class="brand"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="var(--accent)"/><path d="M16 6a10 10 0 1 0 10 10h-4a6 6 0 1 1-6-6z" fill="#fff"/></svg>QuickSpin</div>
+  <div class="chips" id="chips"></div>
+  <a class="btn" id="editorBtn" target="_blank" hidden>⌨ Editor</a>
+  <a class="btn" id="adminerBtn" target="_blank" hidden>🗄 Database</a>
+  <div class="menu" id="mainMenu"><button onclick="toggleMenu(event,'mainMenu')">⋯</button>
+    <div class="menu-list">
+      <button onclick="showInfo()">Environment info</button>
+      <hr><button onclick="openExportCfg()">Export configuration…</button>
+      <button onclick="openImportCfg()">Import configuration…</button><hr>
+      <button onclick="openFolder('root')">Open QuickSpin folder</button>
+      <button onclick="openFolder('exports')">Open exports folder</button>
+      <button onclick="openFolder('logs')">Open logs folder</button>
+      <hr><button onclick="api('POST','/api/browser/restart');toast('Restarting browser…')">Restart browser</button>
+      <button class="danger" onclick="stopAll()">Stop QuickSpin</button>
+    </div></div>
+</div></header>
+
+<main>
+  <div class="banner" id="restartBanner" hidden>
+    <div style="flex:1"><b>New domains added.</b> The browser must restart to route them to QuickSpin (open tabs are restored).</div>
+    <button class="primary" onclick="api('POST','/api/browser/restart')">Restart browser</button>
+  </div>
+  <div class="toolbar"><h1>Projects</h1><button class="primary" onclick="openNew()">＋ New project</button></div>
+  <div id="projects"></div>
+</main>
+
+<!-- New project -->
+<dialog id="newDlg"><form method="dialog" onsubmit="return createProject(event)">
+  <div class="dhead"><h3>New project</h3><button type="button" onclick="newDlg.close()">✕</button></div>
+  <div class="dbody">
+    <div class="tabs"><button type="button" id="tabGit" class="on" onclick="setSource('git')">Clone a Git repository</button><button type="button" id="tabLocal" onclick="setSource('local')">Use a folder on this PC</button></div>
+    <div id="gitFields">
+      <label>Repository URL</label>
+      <input name="repoUrl" placeholder="https://github.com/acme/site.git  or  git@bitbucket.org:acme/site.git" oninput="suggest()">
+      <div class="hint">GitHub, Bitbucket, GitLab, Azure DevOps… HTTPS or SSH. Private repos use your Git credentials / SSH key.</div>
+      <div class="row">
+        <div><label>Branch</label><input name="branch" placeholder="default branch"></div>
+        <div><label class="check" style="margin-top:36px"><input type="checkbox" name="shallow"> Shallow clone (faster, no history)</label></div>
+      </div>
+    </div>
+    <div id="localFields" hidden>
+      <label>Folder</label><input name="localPath" placeholder="C:\Sites\my-site" oninput="suggest()">
+      <div class="hint">The folder is used in place — nothing is copied.</div>
+    </div>
+    <div class="row">
+      <div><label>Name</label><input name="name" placeholder="my-site" oninput="suggestDomain()"></div>
+      <div><label>PHP</label><select name="php" id="phpSel"></select></div>
+    </div>
+    <label>Domains</label><input name="domains" placeholder="my-site.test, www.my-site.test">
+    <div class="hint">First one is the main URL. <code>.test</code> domains work instantly; others need a browser restart.</div>
+    <details><summary>Where things are in the repository (optional — auto-detected)</summary>
+      <label>Web root (PHP files)</label><input name="webRoot" placeholder="auto-detect   ·   e.g. public   ·   . for the repository root">
+      <label>Database dump</label><input name="dumpPath" placeholder="auto-detect   ·   e.g. db/site.sql.gz   ·   - for a fresh install">
+      <div class="hint">.sql, .sql.gz and .sql.zip are supported. A committed <code>.quickspin.json</code> can set these for your whole team.</div>
+      <label class="check"><input type="checkbox" name="debug"> Enable WP_DEBUG</label>
+    </details>
+    <div class="err" id="newErr" hidden style="margin-top:12px"></div>
+  </div>
+  <div class="dfoot"><button type="button" onclick="newDlg.close()">Cancel</button><button class="primary" id="createBtn">Create project</button></div>
+</form></dialog>
+
+<!-- Job log -->
+<dialog id="logDlg"><div class="dhead"><h3 id="logTitle">Log</h3><button onclick="closeLog()">✕</button></div>
+  <div class="dbody"><div class="step" id="logStep"></div><div class="progress" id="logProg" style="margin-top:8px"><div></div></div><pre class="log" id="logPre"></pre></div>
+  <div class="dfoot"><a class="btn primary" id="logOpen" target="_blank" hidden>Open site</a><button onclick="closeLog()">Close</button></div>
+</dialog>
+
+<!-- Settings -->
+<dialog id="setDlg"><form method="dialog" onsubmit="return saveSettings(event)">
+  <div class="dhead"><h3>Project settings</h3><button type="button" onclick="setDlg.close()">✕</button></div>
+  <div class="dbody">
+    <label>Name</label><input name="name">
+    <label>Domains</label><input name="domains"><div class="hint">Changing the first domain rewrites the URLs in the database.</div>
+    <div class="row"><div><label>PHP</label><select name="php" id="phpSel2"></select></div><div><label>Web root</label><input name="webRoot"></div></div>
+    <label class="check"><input type="checkbox" name="debug"> WP_DEBUG (errors shown, logged to the QuickSpin logs folder)</label>
+    <div class="err" id="setErr" hidden style="margin-top:12px"></div>
+  </div>
+  <div class="dfoot"><button type="button" onclick="setDlg.close()">Cancel</button><button class="primary">Save</button></div>
+</form></dialog>
+
+<!-- Export -->
+<dialog id="expDlg"><form method="dialog" onsubmit="return doExport(event)">
+  <div class="dhead"><h3>Export database</h3><button type="button" onclick="expDlg.close()">✕</button></div>
+  <div class="dbody">
+    <label class="check"><input type="radio" name="target" value="exports" checked> Save to the QuickSpin exports folder</label>
+    <label class="check"><input type="radio" name="target" value="repo"> Overwrite the dump in the repository (<span class="mono" id="expDump"></span>)</label>
+    <label class="check"><input type="checkbox" name="original" checked> Restore the original site URL (<span class="mono" id="expOld"></span>)</label>
+  </div>
+  <div class="dfoot"><button type="button" onclick="expDlg.close()">Cancel</button><button class="primary">Export</button></div>
+</form></dialog>
+
+<!-- Delete -->
+<dialog id="delDlg"><form method="dialog" onsubmit="return doDelete(event)">
+  <div class="dhead"><h3>Delete project</h3><button type="button" onclick="delDlg.close()">✕</button></div>
+  <div class="dbody"><p>This removes <b id="delName"></b> from QuickSpin and drops its database <code id="delDb"></code>.</p>
+    <label class="check" id="delFilesRow"><input type="checkbox" name="files"> Also delete the cloned files (<span class="mono" id="delPath"></span>)</label>
+    <div class="err" id="delErr" hidden></div></div>
+  <div class="dfoot"><button type="button" onclick="delDlg.close()">Cancel</button><button class="primary" style="background:var(--bad);border-color:var(--bad)">Delete</button></div>
+</form></dialog>
+
+<!-- Info / service log -->
+<dialog id="infoDlg"><div class="dhead"><h3 id="infoTitle">Environment</h3><button onclick="infoDlg.close()">✕</button></div>
+  <div class="dbody" id="infoBody"></div>
+  <div class="dfoot" id="infoFoot"><button onclick="infoDlg.close()">Close</button></div>
+</dialog>
+
+<!-- Export configuration -->
+<dialog id="cfgExpDlg"><form method="dialog" onsubmit="return doExportCfg(event)">
+  <div class="dhead"><h3>Export configuration</h3><button type="button" onclick="cfgExpDlg.close()">✕</button></div>
+  <div class="dbody">
+    <p class="hint" style="font-size:13px">Creates a .zip you can import on another computer (Windows, macOS or Linux) or keep as a backup. Git projects are re-cloned on import; tool paths stay machine-specific. Passwords embedded in clone URLs are removed.</p>
+    <label class="check"><input type="checkbox" name="settings" checked> Settings (ports, default PHP, browser options)</label>
+    <label class="check"><input type="checkbox" name="db"> Include each project's current database <span class="hint">(bigger file; otherwise the repository dump is used)</span></label>
+    <label>Projects</label><div id="cfgExpList"></div>
+  </div>
+  <div class="dfoot"><button type="button" onclick="cfgExpDlg.close()">Cancel</button><button class="primary">Download export</button></div>
+</form></dialog>
+
+<!-- Import configuration -->
+<dialog id="cfgImpDlg"><form method="dialog" onsubmit="return doImportCfg(event)">
+  <div class="dhead"><h3>Import configuration</h3><button type="button" onclick="cfgImpDlg.close()">✕</button></div>
+  <div class="dbody">
+    <label>Export file (.zip)</label><input type="file" name="file" accept=".zip,application/zip" onchange="uploadCfg(this)">
+    <div id="cfgImpBody"></div>
+    <div class="err" id="cfgImpErr" hidden style="margin-top:12px"></div>
+  </div>
+  <div class="dfoot"><button type="button" onclick="cfgImpDlg.close()">Cancel</button><button class="primary" id="cfgImpBtn" disabled>Import</button></div>
+</form></dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let lastSig = '', status = {}, projects = [], logJob = null, logTimer = null, source = 'git', current = null;
+
+async function api(method, url, body) {
+  const r = await fetch(url, {method, headers: {'X-QuickSpin': '1', 'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 3200); }
+function toggleMenu(e, id) { e.stopPropagation(); const m = document.getElementById(id); const open = m.classList.contains('open'); document.querySelectorAll('.menu.open').forEach(x => x.classList.remove('open')); if (!open) m.classList.add('open'); }
+document.addEventListener('click', () => document.querySelectorAll('.menu.open').forEach(x => x.classList.remove('open')));
+
+// ---------- status ----------
+const svcLabel = n => n === 'mariadb' ? (status.dbName || 'Database') : n === 'web' ? `Web · PHP ${status.defaultPhp || ''}` : n === 'editor' ? 'Editor' : n === 'browser' ? 'Browser' : n.replace(/^php-/, 'PHP ');
+async function loadStatus() {
+  try { status = await api('GET', '/api/status'); } catch { return; }
+  const groups = {};
+  for (const s of status.services || []) {
+    const key = s.name;
+    (groups[key] ||= []).push(s);
+  }
+  const rank = {failed: 3, restarting: 2, starting: 2, stopped: 1, running: 0};
+  $('#chips').innerHTML = Object.entries(groups).map(([k, list]) => {
+    const worst = list.reduce((a, b) => (rank[b.state] ?? 1) > (rank[a.state] ?? 1) ? b : a);
+    const label = svcLabel(k);
+    return `<button class="chip" title="${esc(worst.state + (worst.error ? ': ' + worst.error : ''))}" onclick="showService('${esc(list[0].name)}')"><span class="dot ${esc(worst.state)}"></span>${esc(label)}</button>`;
+  }).join('');
+  const ed = $('#editorBtn'); ed.hidden = !status.editorUrl; ed.href = status.editorUrl || '#';
+  const ad = $('#adminerBtn'); ad.hidden = !status.adminerUrl; ad.href = status.adminerUrl || '#';
+  $('#restartBanner').hidden = !status.browserRestart;
+  const opts = (status.phpCatalog || []).map(v => `<option value="${v}">${v}${(status.phpInstalled || []).includes(v) ? '' : ' (downloads on use)'}${v === status.defaultPhp ? ' — default' : ''}</option>`).join('');
+  for (const id of ['#phpSel', '#phpSel2']) { const s = $(id); const cur = s.value; s.innerHTML = opts; s.value = cur || status.defaultPhp; }
+}
+
+// ---------- projects ----------
+async function loadProjects() {
+  let next; try { next = await api('GET', '/api/projects'); } catch { return; }
+  const sig = JSON.stringify(next);
+  projects = next;
+  if (sig === lastSig || document.querySelector('#projects .menu.open')) return;
+  lastSig = sig; render();
+}
+function render() {
+  const el = $('#projects');
+  if (!projects.length) {
+    el.innerHTML = `<div class="empty"><h2>No projects yet</h2><p>Clone a WordPress repository and QuickSpin will import its database, rewrite the URLs and serve it on a <code>.test</code> domain.</p><button class="primary" onclick="openNew()">＋ New project</button></div>`;
+    return;
+  }
+  el.innerHTML = '<div class="grid">' + projects.map(card).join('') + '</div>';
+}
+function card(p) {
+  const job = p.job || {};
+  const busy = p.busy;
+  const ready = p.status === 'ready';
+  const prog = busy ? `<div class="step"><span>${esc(job.step || 'Working…')}</span><a href="#" onclick="showLog('${p.slug}');return false">log</a></div>
+     <div class="progress ${job.progress < 0 ? 'indet' : ''}"><div style="width:${Math.max(3, job.progress || 0)}%"></div></div>` : '';
+  const err = p.status === 'error' && !busy ? `<div class="err">${esc(p.error)} · <a href="#" onclick="showLog('${p.slug}');return false">view log</a></div>` : '';
+  const aliases = p.domains.slice(1).map(d => `<a href="http://${esc(d)}" target="_blank">${esc(d)}</a>`).join(', ');
+  const src = p.source === 'git' ? `${esc(p.repoUrl)}${p.branch ? ' @ ' + esc(p.branch) : ''}` : esc(p.path);
+  return `<div class="card">
+    <h2><span class="name" title="${esc(p.name)}">${esc(p.name)}</span><span class="pill ${esc(p.status)}">${busy ? 'working' : esc(p.status)}</span>
+      <span style="flex:1"></span>
+      <div class="menu" id="m-${p.slug}"><button onclick="toggleMenu(event,'m-${p.slug}')">⋯</button><div class="menu-list">
+        ${p.source === 'git' ? `<button onclick="act('${p.slug}','pull')">Git pull</button>` : ''}
+        <button onclick="act('${p.slug}','rebuild')">Rebuild (re-import database)</button>
+        <button onclick="openExport('${p.slug}')">Export database…</button>
+        <hr><button onclick="openSettings('${p.slug}')">Settings…</button>
+        <button onclick="openFolder('project','${p.slug}')">Open folder</button>
+        <button onclick="showLog('${p.slug}')">Last task log</button>
+        <hr><button class="danger" onclick="openDelete('${p.slug}')">Delete…</button>
+      </div></div></h2>
+    <div><a class="domain" href="${esc(p.url)}" target="_blank">${esc(p.domains[0])}</a>${aliases ? `<span class="hint"> · also ${aliases}</span>` : ''}</div>
+    <div class="meta">
+      <b>Source</b><code title="${src}">${src}</code>
+      <b>Web root</b><code title="${esc(p.docRoot)}">${esc(p.webRoot || '/')}</code>
+      <b>Database</b><code>${esc(p.dbName)}${p.dumpPath ? ' ← ' + esc(p.dumpPath) : ''}</code>
+      <b>PHP</b><code>${esc(p.runsPhp)}${p.php && p.php !== p.runsPhp ? ' (wants ' + esc(p.php) + ')' : ''}${p.debug ? ' · WP_DEBUG' : ''}${p.multisite ? ' · multisite' : ''}</code>
+      ${p.oldUrl ? `<b>Original</b><code>${esc(p.oldUrl)}</code>` : ''}
+    </div>
+    ${prog}${err}
+    <div class="actions">
+      <a class="btn primary" href="${esc(p.url)}" target="_blank" ${ready ? '' : 'style="pointer-events:none;opacity:.5"'}>Open site</a>
+      <a class="btn" href="/api/projects/${p.slug}/login" target="_blank" ${ready ? '' : 'style="pointer-events:none;opacity:.5"'} title="Logs you in as the first administrator">WP Admin</a>
+      ${p.editorUrl ? `<a class="btn" href="${esc(p.editorUrl)}" target="_blank">Edit code</a>` : ''}
+      ${p.xdebug ? `<a class="btn" href="${esc(p.debugUrl)}" target="_blank" title="Starts an Xdebug session cookie; run 'Listen for Xdebug' in the editor first">Debug</a>` : `<span class="btn" style="opacity:.5;cursor:default" title="Xdebug is not available for PHP ${esc(p.runsPhp)} on this computer yet">Debug</span>`}
+      ${p.adminerUrl ? `<a class="btn" href="${esc(p.adminerUrl)}" target="_blank">DB</a>` : ''}
+    </div>
+  </div>`;
+}
+
+// ---------- create ----------
+function setSource(s) { source = s; $('#tabGit').classList.toggle('on', s === 'git'); $('#tabLocal').classList.toggle('on', s === 'local'); $('#gitFields').hidden = s !== 'git'; $('#localFields').hidden = s !== 'local'; suggest(); }
+function openNew() { const f = $('#newDlg form'); f.reset(); f._auto = true; f._autoDom = true; $('#newErr').hidden = true; $('#phpSel').value = status.defaultPhp; setSource('git'); newDlg.showModal(); f.repoUrl.focus(); }
+function slugify(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
+function suggest() {
+  const f = $('#newDlg form');
+  const src = source === 'git' ? f.repoUrl.value : f.localPath.value.replace(/\\/g, '/');
+  const m = src.trim().match(/([^\/:]+?)(\.git)?\/?$/);
+  if (!f.name.value || f._auto) { f.name.value = m ? m[1] : ''; f._auto = true; }
+  suggestDomain();
+}
+function suggestDomain() { const f = $('#newDlg form'); if (!f.domains.value || f._autoDom) { const s = slugify(f.name.value); f.domains.value = s ? s + '.test' : ''; f._autoDom = true; } }
+document.addEventListener('input', e => { const f = $('#newDlg form'); if (e.target === f.name) f._auto = false; if (e.target === f.domains) f._autoDom = false; });
+async function createProject(e) {
+  e.preventDefault();
+  const f = e.target, btn = $('#createBtn');
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/projects', {
+      source, repoUrl: f.repoUrl.value, branch: f.branch.value, shallow: f.shallow.checked, localPath: f.localPath.value,
+      name: f.name.value, domains: f.domains.value, php: f.php.value, webRoot: f.webRoot.value, dumpPath: f.dumpPath.value, debug: f.debug.checked,
+    });
+    newDlg.close();
+    await loadProjects();
+    showLog(r.project.slug, r.job);
+  } catch (err) { $('#newErr').textContent = err.message; $('#newErr').hidden = false; }
+  finally { btn.disabled = false; }
+  return false;
+}
+
+// ---------- actions ----------
+async function act(slug, action, body) {
+  try { const r = await api('POST', `/api/projects/${slug}/${action}`, body || {}); await loadProjects(); showLog(slug, r.job); }
+  catch (err) { toast(err.message); }
+}
+function openExport(slug) {
+  current = projects.find(p => p.slug === slug);
+  $('#expDump').textContent = current.dumpPath || 'database.sql';
+  $('#expOld').textContent = current.oldUrl || 'none recorded';
+  const f = $('#expDlg form'); f.reset(); f.original.disabled = !current.oldUrl; f.original.checked = !!current.oldUrl;
+  expDlg.showModal();
+}
+function doExport(e) { e.preventDefault(); const f = e.target; expDlg.close(); act(current.slug, 'export', {toRepo: f.target.value === 'repo', originalUrls: f.original.checked}); return false; }
+function openSettings(slug) {
+  current = projects.find(p => p.slug === slug);
+  const f = $('#setDlg form');
+  f.name.value = current.name; f.domains.value = current.domains.join(', '); f.php.value = current.php; f.webRoot.value = current.webRoot || '.'; f.debug.checked = current.debug;
+  $('#setErr').hidden = true; setDlg.showModal();
+}
+async function saveSettings(e) {
+  e.preventDefault(); const f = e.target;
+  try {
+    const r = await api('PUT', `/api/projects/${current.slug}`, {name: f.name.value, domains: f.domains.value, php: f.php.value, webRoot: f.webRoot.value, debug: f.debug.checked});
+    setDlg.close(); await loadProjects(); loadStatus();
+    if (r.job) showLog(current.slug, r.job); else toast('Saved');
+  } catch (err) { $('#setErr').textContent = err.message; $('#setErr').hidden = false; }
+  return false;
+}
+function openDelete(slug) {
+  current = projects.find(p => p.slug === slug);
+  $('#delName').textContent = current.name; $('#delDb').textContent = current.dbName; $('#delPath').textContent = current.path;
+  $('#delFilesRow').hidden = !current.managed; $('#delErr').hidden = true;
+  const f = $('#delDlg form'); f.reset(); delDlg.showModal();
+}
+async function doDelete(e) {
+  e.preventDefault();
+  try { await api('DELETE', `/api/projects/${current.slug}?files=${e.target.files.checked ? 1 : 0}`); delDlg.close(); toast('Project deleted'); loadProjects(); }
+  catch (err) { $('#delErr').textContent = err.message; $('#delErr').hidden = false; loadProjects(); }
+  return false;
+}
+async function openFolder(what, slug) { try { await api('POST', '/api/open-folder', {what, slug}); } catch (err) { toast(err.message); } }
+async function stopAll() { if (!confirm('Stop QuickSpin? All sites, the database and the editor will shut down.')) return; await api('POST', '/api/shutdown'); document.body.innerHTML = '<main><div class="empty"><h2>QuickSpin stopped</h2><p>You can close this window.</p></div></main>'; }
+
+// ---------- configuration export / import ----------
+function openExportCfg() {
+  $('#cfgExpList').innerHTML = projects.length ? projects.map(p => `<label class="check" style="margin-top:6px"><input type="checkbox" name="p" value="${esc(p.slug)}" checked> ${esc(p.name)} <span class="hint">${esc(p.domains[0])}</span></label>`).join('') : '<p class="hint">No projects yet — only settings will be exported.</p>';
+  cfgExpDlg.showModal();
+}
+function doExportCfg(e) {
+  e.preventDefault(); const f = e.target;
+  const sel = [...f.querySelectorAll('input[name=p]:checked')].map(x => x.value);
+  if (projects.length && !sel.length && !f.settings.checked) { toast('Nothing selected'); return false; }
+  const q = new URLSearchParams({db: f.db.checked ? 1 : 0, settings: f.settings.checked ? 1 : 0, projects: sel.join(',') || '-'});
+  const a = document.createElement('a'); a.href = '/api/export?' + q; a.download = ''; document.body.appendChild(a); a.click(); a.remove();
+  cfgExpDlg.close(); toast(f.db.checked ? 'Exporting databases — the download starts when the dumps are ready' : 'Export downloaded');
+  return false;
+}
+let importId = null;
+function openImportCfg() { const f = $('#cfgImpDlg form'); f.reset(); importId = null; $('#cfgImpBody').innerHTML = ''; $('#cfgImpErr').hidden = true; $('#cfgImpBtn').disabled = true; cfgImpDlg.showModal(); }
+async function uploadCfg(input) {
+  const file = input.files[0]; if (!file) return;
+  $('#cfgImpErr').hidden = true; $('#cfgImpBtn').disabled = true; $('#cfgImpBody').innerHTML = '<p class="hint">Reading…</p>';
+  try {
+    const r = await fetch('/api/import', {method: 'POST', headers: {'X-QuickSpin': '1', 'Content-Type': 'application/zip'}, body: file});
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || r.statusText);
+    importId = d.id;
+    const anyDb = d.projects.some(p => p.hasDatabase);
+    const label = {new: '', exists: 'already here', conflict: 'domain in use', missing: 'folder missing'};
+    $('#cfgImpBody').innerHTML = `<p class="hint">${esc(d.app)} · exported ${new Date(d.exportedAt).toLocaleString()}</p>
+      ${d.hasSettings ? '<label class="check"><input type="checkbox" name="settings"> Apply its settings <span class="hint">(ports, default PHP, browser options — restart needed)</span></label>' : ''}
+      ${anyDb ? '<label class="check"><input type="checkbox" name="databases" checked> Use the databases in the export <span class="hint">(otherwise each repository dump is imported)</span></label>' : ''}
+      <label>Projects</label>
+      ${d.projects.length ? d.projects.map(p => `<label class="check" style="margin-top:6px;align-items:flex-start"><input type="checkbox" name="ip" value="${esc(p.slug)}" ${p.status === 'new' ? 'checked' : ''} ${p.status === 'missing' ? 'disabled' : ''}>
+        <span><b>${esc(p.name)}</b> <span class="hint">${esc(p.domains.join(', '))}${p.hasDatabase ? ' · database included' : ''}</span><br><span class="hint mono">${esc(p.location)}</span>${p.note ? `<br><span class="hint" style="color:var(--warn)">${esc(label[p.status] + ': ' + p.note)}</span>` : ''}</span></label>`).join('') : '<p class="hint">No projects in this export.</p>'}`;
+    $('#cfgImpBtn').disabled = false;
+  } catch (err) { $('#cfgImpBody').innerHTML = ''; $('#cfgImpErr').textContent = err.message; $('#cfgImpErr').hidden = false; }
+}
+async function doImportCfg(e) {
+  e.preventDefault(); if (!importId) return false;
+  const f = e.target, btn = $('#cfgImpBtn'); btn.disabled = true;
+  try {
+    const d = await api('POST', `/api/import/${importId}/apply`, {
+      settings: !!(f.settings && f.settings.checked), databases: !!(f.databases && f.databases.checked),
+      projects: [...f.querySelectorAll('input[name=ip]:checked')].map(x => x.value),
+    });
+    importId = null; cfgImpDlg.close(); await loadProjects(); loadStatus();
+    const failed = (d.results || []).filter(r => r.error);
+    toast(`Importing ${(d.results || []).length - failed.length} project(s)` + (failed.length ? ` · ${failed.length} failed: ${failed.map(r => r.name + ' (' + r.error + ')').join('; ')}` : '') + (d.restartRequired ? ' · restart QuickSpin to apply the new settings' : ''));
+  } catch (err) { $('#cfgImpErr').textContent = err.message; $('#cfgImpErr').hidden = false; btn.disabled = false; }
+  return false;
+}
+
+// ---------- logs ----------
+function showLog(slug, jobId) {
+  logJob = jobId || 'latest:' + slug;
+  const p = projects.find(x => x.slug === slug);
+  $('#logTitle').textContent = p ? p.name : slug;
+  $('#logPre').textContent = ''; $('#logOpen').hidden = true;
+  if (!logDlg.open) logDlg.showModal();
+  pollLog();
+}
+function closeLog() { logDlg.close(); logJob = null; clearTimeout(logTimer); }
+async function pollLog() {
+  clearTimeout(logTimer);
+  if (!logJob) return;
+  let j;
+  try { j = await api('GET', '/api/jobs/' + encodeURIComponent(logJob)); } catch (err) { $('#logPre').textContent = 'No task has run for this project since QuickSpin started.\nOlder logs are in the logs folder.'; $('#logStep').textContent = ''; return; }
+  logJob = j.id;
+  const pre = $('#logPre'), atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
+  pre.textContent = j.log; if (atBottom) pre.scrollTop = pre.scrollHeight;
+  $('#logStep').innerHTML = `<span>${esc(j.kind)} — ${j.status === 'running' ? esc(j.step || '') : j.status === 'done' ? '✔ done' : '✖ ' + esc(j.error)}</span>`;
+  const pr = $('#logProg'); pr.classList.toggle('indet', j.status === 'running' && j.progress < 0); pr.firstElementChild.style.width = (j.status === 'running' ? Math.max(3, j.progress) : 100) + '%';
+  pr.firstElementChild.style.background = j.status === 'failed' ? 'var(--bad)' : j.status === 'done' ? 'var(--ok)' : 'var(--accent)';
+  if (j.status === 'done' && j.result && /^https?:/.test(j.result)) { $('#logOpen').href = j.result; $('#logOpen').hidden = false; }
+  if (j.status === 'running') logTimer = setTimeout(pollLog, 1000); else { loadProjects(); loadStatus(); }
+}
+async function showService(name) {
+  $('#infoTitle').textContent = svcLabel(name);
+  let d; try { d = await api('GET', `/api/services/${name}/log`); } catch (e) { return toast(e.message); }
+  $('#infoBody').innerHTML = `<div class="kv"><span>State</span><span>${esc(d.status.state)}${d.status.error ? ' — ' + esc(d.status.error) : ''}</span><span>PID</span><span>${esc(d.status.pid || '–')}</span><span>Uptime</span><span>${esc(d.status.uptime || '–')}</span><span>Restarts</span><span>${d.status.restarts}</span></div><pre class="log">${esc(d.lines.join('\n') || '(no output)')}</pre>`;
+  $('#infoFoot').innerHTML = `<button onclick="api('POST','/api/services/${name}/restart').then(()=>{toast('Restarting…');infoDlg.close()})">Restart</button><button onclick="infoDlg.close()">Close</button>`;
+  infoDlg.showModal();
+  const pre = $('#infoBody pre'); pre.scrollTop = pre.scrollHeight;
+}
+function showInfo() {
+  const s = status, v = s.versions || {};
+  $('#infoTitle').textContent = 'Environment';
+  $('#infoBody').innerHTML = `<div class="kv">
+    <span>QuickSpin</span><span>${esc(s.version)} (${esc(s.platform)})</span>
+    <span>Folder</span><span class="mono">${esc(s.root)}</span>
+    <span>Config</span><span class="mono">${esc(s.configFile)}</span>
+    <span>Database</span><span class="mono">${esc(s.db.host)}:${s.db.port} · user ${esc(s.db.user)} / ${esc(s.db.password)}</span>
+    <span>Sites</span><span class="mono">port ${s.ports.http} (mapped inside this browser)</span>
+    ${Object.entries(v).sort().map(([k, x]) => `<span>${esc(k)}</span><span>${esc(x)}</span>`).join('')}
+    </div><p class="hint">Xdebug listens on port 9003: open a project in the editor, run "Listen for Xdebug (QuickSpin)", then press Debug on the project card.</p>`;
+  $('#infoFoot').innerHTML = `<button onclick="infoDlg.close()">Close</button>`;
+  infoDlg.showModal();
+}
+
+// ---------- boot ----------
+loadStatus(); loadProjects();
+setInterval(loadStatus, 4000);
+setInterval(() => { if (!document.hidden) loadProjects(); }, projects.some?.(p => p.busy) ? 1500 : 3000);
+</script>
+</body>
+</html>

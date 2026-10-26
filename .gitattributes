@@ -1,0 +1,4 @@
+# Keep line endings Unix-style even when committed from Windows
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.exe binary

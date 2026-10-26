@@ -1,0 +1,9 @@
+# Go / build output
+/dist/
+*.exe
+/quickspin
+/quickspin-*
+
+# A QuickSpin started from the repo folder keeps its data here
+/data/
+/runtime/
