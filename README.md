@@ -6,6 +6,10 @@ Put it in any folder (a USB stick works too) and start it. On first start it dow
 
 Nothing is installed system-wide. QuickSpin needs no admin rights, no hosts-file edits and no Docker. Delete the folder and it's gone.
 
+> [!WARNING]
+> This has been built with AI support and therefore caution is advised.
+> This application has been proven to work on Windows, but other operating systems haven't been fully tested as yet (and remain theoretical).
+
 ## Quick start
 
 1. Copy the executable for your system to a folder, for example `C:\QuickSpin\` or `~/QuickSpin/`:
