@@ -2,9 +2,12 @@
 # Tests QuickSpin on Windows, macOS and Linux and builds it for:
 #   Windows x86_64, macOS arm64 (Apple Silicon), Linux x86_64, Linux arm64.
 #
-# - Every push / pull request: test + build; binaries are kept as a workflow artifact.
-# - Pushing a tag like v2.3.0: the same, then a GitHub release with the binaries.
-# - Manual run (Actions → Build QuickSpin → Run workflow): build, optionally publish.
+# - Every push to main: test, build and publish a GitHub release with an automatic
+#   version number <VERSION file>.<next patch>, e.g. 2.2.0, 2.2.1, 2.2.2 …
+#   (edit VERSION, e.g. to 2.3, to start a new series at 2.3.0).
+# - Pushing a tag like v3.0.0 yourself: release with exactly that version.
+# - Manual run (Actions → Build QuickSpin → Run workflow): like a push; a version can be given.
+# - Pull requests: test + build only (binaries kept as a workflow artifact).
 name: Build QuickSpin
 
 on:
@@ -15,13 +18,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g. 2.3.0). Empty = build only, no release"
+        description: "Version to publish (e.g. 2.3.0). Empty = next automatic version"
         required: false
         type: string
 
 permissions:
   contents: read
 
+# Pushes to main run one at a time, so two runs never pick the same version number.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -65,15 +69,20 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          publish=false
+          publish=true
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             version="${GITHUB_REF_NAME#v}"
-            publish=true
           elif [ -n "${INPUT_VERSION:-}" ]; then
             version="${INPUT_VERSION#v}"
-            publish=true
-          else
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             version="dev-${GITHUB_SHA::7}"
+            publish=false
+          else
+            version="$(bash scripts/next-version.sh)"
+          fi
+          if [ "$publish" = true ] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null && [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::release v$version already exists — choose another version"
+            exit 1
           fi
           [[ "$version" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid version '$version'"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"

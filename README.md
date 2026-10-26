@@ -196,12 +196,10 @@ The version shown by `quickspin version` and on the dashboard is set at build ti
 
 `.github/workflows/release.yml`:
 
-- **Every push and pull request:** runs `gofmt`, `go vet` and the tests on Windows, macOS and Linux, then builds all four targets. The binaries are attached to the run as an artifact.
-- **Pushing a version tag** publishes a GitHub release with the binaries and checksums:
-
-  ```
-  git tag v2.3.0
-  git push origin v2.3.0
-  ```
-
-- **Manually:** Actions → *Build QuickSpin* → *Run workflow*. Enter a version to publish a release without tagging locally, or leave it empty to only build.
+- **Every push to `main`:** runs `gofmt`, `go vet` and the tests on Windows, macOS and Linux, builds all four targets and publishes a GitHub release with the binaries and checksums.
+  - The version number is automatic: `VERSION` holds `MAJOR.MINOR` (e.g. `2.2`), and each release takes the next patch number, so releases go 2.2.0, 2.2.1, 2.2.2, and so on.
+  - To start a new series, change `VERSION` to `2.3` (or `3.0`). The next push releases 2.3.0.
+  - To see the version the next push will get: `bash scripts/next-version.sh`.
+- **Pull requests:** tests and builds only. The binaries are attached to the run as an artifact.
+- **Pushing a tag yourself** (`git tag v3.0.0 && git push origin v3.0.0`) releases exactly that version.
+- **Manually:** Actions → *Build QuickSpin* → *Run workflow*. Leave the version empty for the next automatic number, or type one.
