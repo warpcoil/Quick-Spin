@@ -3,6 +3,8 @@ package main
 import (
 	"archive/zip"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,13 +54,72 @@ func TestNormalizeDomains(t *testing.T) {
 	if err != nil || len(got) != 2 || got[0] != "acme.test" || got[1] != "www.acme.test" {
 		t.Fatalf("got %v %v", got, err)
 	}
-	for _, bad := range []string{"acme.dev", "acme.app", "nodot", "db.quickspin.test", "bad_domain.test", ""} {
+	for _, bad := range []string{"nodot", "db.quickspin.test", "bad_domain.test", ""} {
 		if _, err := normalizeDomains([]string{bad}); err == nil {
 			t.Errorf("%q should be rejected", bad)
 		}
 	}
 	if _, err := normalizeDomains([]string{"shop.client.co.uk"}); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestDomainScheme(t *testing.T) {
+	if err := checkDomainsScheme([]string{"acme.test", "acme.dev"}, false); err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Errorf(".dev over http should be rejected: %v", err)
+	}
+	if err := checkDomainsScheme([]string{"acme.dev", "x.app"}, true); err != nil {
+		t.Error(err)
+	}
+	if u := (&Project{Domains: []string{"a.dev"}, HTTPS: true}).URL(); u != "https://a.dev" {
+		t.Error(u)
+	}
+}
+
+func testApp(t *testing.T) *App {
+	dir := t.TempDir()
+	st, err := OpenStore(filepath.Join(dir, "projects.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &App{Data: dir, cfg: defaultConfig(), store: st, log: log.New(io.Discard, "", 0), defaultPHP: "8.5"}
+}
+
+func TestHTTPSConfig(t *testing.T) {
+	a := testApp(t)
+	a.store.Add(&Project{Slug: "plain", Name: "Plain", Domains: []string{"plain.test", "plain.local"}, Path: "/x", PHP: "8.5"})
+	a.store.Add(&Project{Slug: "shop", Name: "Shop", Domains: []string{"shop.test", "shop.dev"}, Path: "/y", PHP: "8.5", HTTPS: true, Multisite: true})
+	rules := a.resolverRules()
+	want := "MAP *.shop.test 127.0.0.1:47443, MAP plain.local 127.0.0.1:47081, MAP shop.dev 127.0.0.1:47443, MAP shop.test 127.0.0.1:47443, MAP *.test 127.0.0.1:47081"
+	if rules != want {
+		t.Errorf("rules\n got %s\nwant %s", rules, want)
+	}
+	cf := a.caddyfileFor("8.5")
+	for _, s := range []string{"https_port 47443", "auto_https disable_redirects", "intermediate {", "http_redirect", "https://shop.test, https://shop.dev, https://*.shop.test {\n\ttls internal", "http://plain.test, http://plain.local {"} {
+		if !strings.Contains(cf, s) {
+			t.Errorf("Caddyfile lacks %q:\n%s", s, cf)
+		}
+	}
+	ca, err := a.ensureCA()
+	if err != nil || len(ca.SPKI) != 2 {
+		t.Fatal(ca, err)
+	}
+	root, _ := readCert(ca.RootCert)
+	in, _ := readCert(ca.IntCert)
+	if err := in.CheckSignatureFrom(root); err != nil || !in.IsCA {
+		t.Fatal("intermediate not signed by root", err)
+	}
+	// Stable across restarts (the browser flag depends on it).
+	a.ca = nil
+	ca2, _ := a.ensureCA()
+	if ca2.SPKI[1] != ca.SPKI[1] {
+		t.Error("CA was regenerated")
+	}
+	// No https projects: no TLS at all.
+	b := testApp(t)
+	b.store.Add(&Project{Slug: "plain", Name: "Plain", Domains: []string{"plain.test"}, Path: "/x", PHP: "8.5"})
+	if cf := b.caddyfileFor("8.5"); !strings.Contains(cf, "auto_https off") || strings.Contains(cf, "pki") {
+		t.Errorf("unexpected TLS config:\n%s", cf)
 	}
 }
 

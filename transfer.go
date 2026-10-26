@@ -45,6 +45,7 @@ type bundleProject struct {
 	DumpPath  string      `json:"dumpPath"`
 	PHP       string      `json:"php"`
 	Debug     bool        `json:"debug"`
+	HTTPS     bool        `json:"https,omitempty"`
 	OrigURL   string      `json:"originalUrl,omitempty"`
 	Remote    *RemoteSpec `json:"remote,omitempty"`   // live site (no passwords)
 	Database  string      `json:"database,omitempty"` // path inside the zip
@@ -121,7 +122,7 @@ func (a *App) hExport(w http.ResponseWriter, r *http.Request) {
 		bp := bundleProject{
 			Slug: p.Slug, Name: p.Name, Domains: p.Domains, Source: p.Source,
 			RepoURL: stripCredentials(p.RepoURL), Branch: p.Branch,
-			WebRoot: p.WebRoot, DumpPath: p.DumpPath, PHP: p.PHP, Debug: p.Debug, OrigURL: p.OldURL,
+			WebRoot: p.WebRoot, DumpPath: p.DumpPath, PHP: p.PHP, Debug: p.Debug, HTTPS: p.HTTPS, OrigURL: p.OldURL,
 			Remote: p.Remote,
 		}
 		if p.Source == "local" {
@@ -367,7 +368,7 @@ func (a *App) hImportApply(w http.ResponseWriter, r *http.Request) {
 		cr := CreateRequest{
 			Name: bp.Name, Domains: strings.Join(bp.Domains, ", "), Source: bp.Source,
 			RepoURL: bp.RepoURL, Branch: bp.Branch, LocalPath: bp.LocalPath,
-			WebRoot: bp.WebRoot, DumpPath: bp.DumpPath, PHP: bp.PHP, Debug: bp.Debug, OrigURL: bp.OrigURL,
+			WebRoot: bp.WebRoot, DumpPath: bp.DumpPath, PHP: bp.PHP, Debug: bp.Debug, HTTPS: &bp.HTTPS, OrigURL: bp.OrigURL,
 			Remote: bp.Remote,
 		}
 		if phpIndex(cr.PHP) < 0 {

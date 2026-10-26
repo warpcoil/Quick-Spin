@@ -41,6 +41,13 @@ if (!defined('QUICKSPIN')) {
         if (!is_array($sites) || !isset($sites[$slug])) {
             return;
         }
+        // Sites on another PHP version are reached through the front process,
+        // which terminates https: let WordPress see the original scheme.
+        if (PHP_SAPI !== 'cli' && empty($_SERVER['HTTPS']) && isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https'
+            && in_array(isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '', array('127.0.0.1', '::1'), true)) {
+            $_SERVER['HTTPS'] = 'on';
+            $_SERVER['SERVER_PORT'] = 443;
+        }
         $constants = $sites[$slug];
         foreach ($constants as $name => $value) {
             if (!defined($name)) {
@@ -664,6 +671,19 @@ func (a *App) replaceHost(p *Project, j *Job, fromHost, newOrigin string) error 
 	}
 	// 2) protocol-relative URLs (//host)
 	_, err := a.wp(p, j, false, append([]string{"search-replace", `(?<![\w:\\/])(\\?/\\?/)` + hostRe + end, `${1}` + newHost}, common...)...)
+	return err
+}
+
+// rewriteScheme switches every absolute URL on the project's domains (and their
+// subdomains, for multisite) to the project's current scheme.
+func (a *App) rewriteScheme(p *Project, j *Job) error {
+	var hosts []string
+	for _, d := range p.Domains {
+		hosts = append(hosts, regexp.QuoteMeta(d))
+	}
+	re := `https?:(\\?/\\?/)((?:[\w-]+\.)*(?:` + strings.Join(hosts, "|") + `))(?![\w-]|\.[\w-])`
+	_, err := a.wp(p, j, false, "search-replace", re, p.Scheme()+`:${1}${2}`, "--regex", "--regex-delimiter=~", "--regex-flags=i",
+		"--all-tables-with-prefix", "--skip-columns=guid", "--skip-plugins", "--skip-themes", "--report-changed-only")
 	return err
 }
 

@@ -11,7 +11,8 @@ import (
 type Config struct {
 	Ports struct {
 		Dashboard  int `json:"dashboard"`  // QuickSpin dashboard + API (127.0.0.1)
-		HTTP       int `json:"http"`       // FrankenPHP (default PHP); every dev domain is mapped here inside Chromium
+		HTTP       int `json:"http"`       // FrankenPHP (default PHP); every http dev domain is mapped here inside Chromium
+		HTTPS      int `json:"https"`      // same process, https (QuickSpin's local CA); http:// requests are redirected
 		Editor     int `json:"editor"`     // VS Code (serve-web)
 		CaddyAdmin int `json:"caddyAdmin"` // admin API of that FrankenPHP process
 		MariaDB    int `json:"mariadb"`
@@ -51,6 +52,7 @@ func defaultConfig() *Config {
 	c := &Config{}
 	c.Ports.Dashboard = 47080
 	c.Ports.HTTP = 47081
+	c.Ports.HTTPS = 47443
 	c.Ports.Editor = 47082
 	c.Ports.CaddyAdmin = 47083
 	c.Ports.MariaDB = 47306

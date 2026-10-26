@@ -39,6 +39,8 @@ type App struct {
 	mu       sync.Mutex
 	services map[string]*Service
 
+	caMu              sync.Mutex
+	ca                *localCA // local HTTPS CA, see tls.go
 	browserMu         sync.Mutex
 	browserRules      string // resolver rules the running browser was launched with
 	browserRestarting bool

@@ -27,6 +27,7 @@ type CreateRequest struct {
 	DumpPath  string `json:"dumpPath"` // "" = auto-detect, "-" = no dump (fresh install)
 	PHP       string `json:"php"`
 	Debug     bool   `json:"debug"`
+	HTTPS     *bool  `json:"https"` // nil = on
 
 	// Copy a live site over SSH (Source "ssh"). Passwords are kept in memory only.
 	Remote      *RemoteSpec `json:"remote"`
@@ -89,6 +90,10 @@ func (a *App) createProject(req CreateRequest) (*Project, *Job, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	https := req.HTTPS == nil || *req.HTTPS
+	if err := checkDomainsScheme(domains, https); err != nil {
+		return nil, nil, err
+	}
 	php := req.PHP
 	if php == "" {
 		php = a.defaultPHP
@@ -97,7 +102,7 @@ func (a *App) createProject(req CreateRequest) (*Project, *Job, error) {
 		return nil, nil, fmt.Errorf("unsupported PHP version %q", php)
 	}
 	p := &Project{
-		Slug: slug, Name: name, Domains: domains, Source: req.Source, PHP: php, Debug: req.Debug,
+		Slug: slug, Name: name, Domains: domains, Source: req.Source, PHP: php, Debug: req.Debug, HTTPS: https,
 		DBName: dbNameFor(slug), Status: "provisioning", Created: time.Now(),
 	}
 	switch req.Source {
@@ -533,6 +538,7 @@ type UpdateRequest struct {
 	PHP     *string `json:"php"`
 	Debug   *bool   `json:"debug"`
 	WebRoot *string `json:"webRoot"`
+	HTTPS   *bool   `json:"https"`
 }
 
 // updateProject changes settings; a new primary domain rewrites the database URLs.
@@ -560,6 +566,17 @@ func (a *App) updateProject(slug string, req UpdateRequest) (*Job, error) {
 	if req.PHP != nil && phpIndex(*req.PHP) < 0 {
 		return nil, fmt.Errorf("unsupported PHP version %q", *req.PHP)
 	}
+	https := cur.HTTPS
+	if req.HTTPS != nil {
+		https = *req.HTTPS
+	}
+	checkDomains := domains
+	if checkDomains == nil {
+		checkDomains = cur.Domains
+	}
+	if err := checkDomainsScheme(checkDomains, https); err != nil {
+		return nil, err
+	}
 	oldPrimary := cur.Domains[0]
 	p, err := a.store.Update(slug, func(p *Project) {
 		if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
@@ -577,17 +594,24 @@ func (a *App) updateProject(slug string, req UpdateRequest) (*Job, error) {
 		if req.WebRoot != nil {
 			p.WebRoot = strings.Trim(filepath.ToSlash(*req.WebRoot), "/.")
 		}
+		p.HTTPS = https
 	})
 	if err != nil {
 		return nil, err
 	}
 	needDomainRewrite := domains != nil && domains[0] != oldPrimary && cur.Status == "ready"
-	needPHP := !a.phpInstalled(p.PHP)
-	if !needDomainRewrite && !needPHP {
+	needSchemeRewrite := https != cur.HTTPS && cur.Status == "ready"
+	needPHP := p.PHP != "" && !a.phpInstalled(p.PHP) // "" = the default version
+	if !needDomainRewrite && !needSchemeRewrite && !needPHP {
 		a.writeWorkspace(p)
 		return nil, a.reloadWeb()
 	}
-	return a.jobs.Run(slug, "Update settings", func(j *Job) error {
+	return a.jobs.Run(slug, "Update settings", func(j *Job) (err error) {
+		defer func() {
+			if rerr := a.reloadWeb(); err == nil {
+				err = rerr
+			}
+		}()
 		if needPHP {
 			j.SetStep("Installing PHP "+p.PHP, 10)
 			if err := a.installPHP(context.Background(), p.PHP); err != nil {
@@ -607,8 +631,14 @@ func (a *App) updateProject(slug string, req UpdateRequest) (*Job, error) {
 				a.multisiteDomains(p, j, oldPrimary)
 			}
 		}
+		if needSchemeRewrite {
+			j.SetStep("Switching the site's URLs to "+p.Scheme()+"://", 70)
+			if err := a.rewriteScheme(p, j); err != nil {
+				return err
+			}
+		}
 		a.writeWorkspace(p)
-		return a.reloadWeb()
+		return nil
 	})
 }
 

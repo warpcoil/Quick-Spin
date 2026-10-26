@@ -165,6 +165,7 @@ pre.log{background:#0b0e12;color:#cfd6df;font:12px/1.5 var(--mono);padding:12px;
     </div>
     <label>Domains</label><input name="domains" placeholder="my-site.test, www.my-site.test">
     <div class="hint">First one is the main URL. <code>.test</code> domains work instantly; others need a browser restart.</div>
+    <label class="check"><input type="checkbox" name="https" checked> HTTPS <span class="hint">— trusted certificate in QuickSpin's browser (nothing is installed on your system); needed for <code>.dev</code> / <code>.app</code></span></label>
     <details id="repoDetails"><summary>Where things are in the repository (optional — auto-detected)</summary>
       <label>Web root (PHP files)</label><input name="webRoot" placeholder="auto-detect   ·   e.g. public   ·   . for the repository root">
       <label>Database dump</label><input name="dumpPath" placeholder="auto-detect   ·   e.g. db/site.sql.gz   ·   - for a fresh install">
@@ -211,6 +212,7 @@ pre.log{background:#0b0e12;color:#cfd6df;font:12px/1.5 var(--mono);padding:12px;
     <label>Domains</label><input name="domains"><div class="hint">Changing the first domain rewrites the URLs in the database.</div>
     <div class="row"><div><label>PHP</label><select name="php" id="phpSel2"></select></div><div><label>Web root</label><input name="webRoot"></div></div>
     <label class="check"><input type="checkbox" name="debug"> WP_DEBUG (errors shown, logged to the QuickSpin logs folder)</label>
+    <label class="check"><input type="checkbox" name="https"> HTTPS (switching rewrites the site's URLs in the database)</label>
     <div class="err" id="setErr" hidden style="margin-top:12px"></div>
   </div>
   <div class="dfoot"><button type="button" onclick="setDlg.close()">Cancel</button><button class="primary">Save</button></div>
@@ -349,7 +351,7 @@ function card(p) {
       <b>Source</b><code title="${src}">${src}</code>
       <b>Web root</b><code title="${esc(p.docRoot)}">${esc(p.webRoot || '/')}</code>
       <b>Database</b><code>${esc(p.dbName)}${p.dumpPath ? ' ← ' + esc(p.dumpPath) : ''}</code>
-      <b>PHP</b><code>${esc(p.runsPhp)}${p.php && p.php !== p.runsPhp ? ' (wants ' + esc(p.php) + ')' : ''}${p.debug ? ' · WP_DEBUG' : ''}${p.multisite ? ' · multisite' : ''}</code>
+      <b>PHP</b><code>${esc(p.runsPhp)}${p.php && p.php !== p.runsPhp ? ' (wants ' + esc(p.php) + ')' : ''}${p.debug ? ' · WP_DEBUG' : ''}${p.multisite ? ' · multisite' : ''}${p.https ? ' · HTTPS' : ''}</code>
       ${p.oldUrl ? `<b>Original</b><code>${esc(p.oldUrl)}</code>` : ''}
     </div>
     ${prog}${err}
@@ -419,7 +421,7 @@ async function createProject(e) {
   try {
     const body = {
       source, repoUrl: f.repoUrl.value, branch: f.branch.value, shallow: f.shallow.checked, localPath: f.localPath.value,
-      name: f.name.value, domains: f.domains.value, php: f.php.value, webRoot: f.webRoot.value, dumpPath: f.dumpPath.value, debug: f.debug.checked,
+      name: f.name.value, domains: f.domains.value, php: f.php.value, webRoot: f.webRoot.value, dumpPath: f.dumpPath.value, debug: f.debug.checked, https: f.https.checked,
     };
     if (source === 'ssh') Object.assign(body, { remote: remoteFromForm(f), sshPassword: f.sshPassword.value, dbPassword: f.dbPassword.value, webRoot: '', dumpPath: '' });
     const r = await api('POST', '/api/projects', body);
@@ -540,13 +542,13 @@ function doExport(e) { e.preventDefault(); const f = e.target; expDlg.close(); a
 function openSettings(slug) {
   current = projects.find(p => p.slug === slug);
   const f = $('#setDlg form');
-  f.name.value = current.name; f.domains.value = current.domains.join(', '); f.php.value = current.php; f.webRoot.value = current.webRoot || '.'; f.debug.checked = current.debug;
+  f.name.value = current.name; f.domains.value = current.domains.join(', '); f.php.value = current.php; f.webRoot.value = current.webRoot || '.'; f.debug.checked = current.debug; f.https.checked = !!current.https;
   $('#setErr').hidden = true; setDlg.showModal();
 }
 async function saveSettings(e) {
   e.preventDefault(); const f = e.target;
   try {
-    const r = await api('PUT', `/api/projects/${current.slug}`, {name: f.name.value, domains: f.domains.value, php: f.php.value, webRoot: f.webRoot.value, debug: f.debug.checked});
+    const r = await api('PUT', `/api/projects/${current.slug}`, {name: f.name.value, domains: f.domains.value, php: f.php.value, webRoot: f.webRoot.value, debug: f.debug.checked, https: f.https.checked});
     setDlg.close(); await loadProjects(); loadStatus();
     if (r.job) showLog(current.slug, r.job); else toast('Saved');
   } catch (err) { $('#setErr').textContent = err.message; $('#setErr').hidden = false; }

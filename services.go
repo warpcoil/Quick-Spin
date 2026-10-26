@@ -120,23 +120,48 @@ func (a *App) editorURL(p *Project) string {
 
 // ===================== Chromium =====================
 
-// resolverRules maps every dev domain to Caddy — only inside QuickSpin's
-// browser, so no hosts-file edits or admin rights are needed.
+// resolverRules maps every dev domain to FrankenPHP — only inside QuickSpin's
+// browser, so no hosts-file edits or admin rights are needed. https projects go
+// to the https port (which also redirects http:// requests). Chromium uses the
+// first matching rule, so the specific ones come before the *.test catch-all.
 func (a *App) resolverRules() string {
-	target := fmt.Sprintf("127.0.0.1:%d", a.cfg.Ports.HTTP)
-	rules := []string{"MAP *.test " + target}
+	httpT := fmt.Sprintf("127.0.0.1:%d", a.cfg.Ports.HTTP)
+	httpsT := fmt.Sprintf("127.0.0.1:%d", a.cfg.Ports.HTTPS)
+	var rules []string
 	seen := map[string]bool{}
-	for _, p := range a.store.List() {
-		for _, d := range p.Domains {
-			if strings.HasSuffix(d, ".test") || seen[d] {
-				continue
-			}
-			seen[d] = true
-			rules = append(rules, "MAP "+d+" "+target)
+	add := func(host, target string) {
+		if !seen[host] {
+			seen[host] = true
+			rules = append(rules, "MAP "+host+" "+target)
 		}
 	}
-	sort.Strings(rules[1:])
-	return strings.Join(rules, ", ")
+	for _, p := range a.store.List() {
+		if len(p.Domains) == 0 {
+			continue
+		}
+		for _, d := range p.Domains {
+			switch {
+			case p.HTTPS:
+				add(d, httpsT)
+			case !strings.HasSuffix(d, ".test"):
+				add(d, httpT)
+			}
+		}
+		if p.Multisite && (p.HTTPS || !strings.HasSuffix(p.Domains[0], ".test")) {
+			add("*."+p.Domains[0], map[bool]string{true: httpsT, false: httpT}[p.HTTPS])
+		}
+	}
+	sort.Strings(rules)
+	return strings.Join(append(rules, "MAP *.test "+httpT), ", ")
+}
+
+func (a *App) hasHTTPSProjects() bool {
+	for _, p := range a.store.List() {
+		if p.HTTPS {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) browserNeedsRestart() bool {
@@ -173,6 +198,14 @@ func (a *App) startBrowser(restore bool) {
 		"--host-resolver-rules=" + rules,
 		// Dev sites are plain http; don't let Chromium try https first.
 		"--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable,HttpsFirstModeV2ForTypicallySecureUsers",
+	}
+	if a.hasHTTPSProjects() {
+		// Trust QuickSpin's local CA in this browser only (see tls.go).
+		if ca, err := a.ensureCA(); err == nil {
+			args = append(args, "--ignore-certificate-errors-spki-list="+strings.Join(ca.SPKI, ","), "--test-type")
+		} else {
+			a.logf("HTTPS is unavailable: %v", err)
+		}
 	}
 	if a.cfg.Browser.ProxyServer != "" {
 		args = append(args, "--proxy-server="+a.cfg.Browser.ProxyServer, "--proxy-bypass-list="+strings.Join(bypass, ";")+";127.0.0.1;localhost")

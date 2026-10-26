@@ -6,10 +6,6 @@ Put it in any folder (a USB stick works too) and start it. On first start it dow
 
 Nothing is installed system-wide. QuickSpin needs no admin rights, no hosts-file edits and no Docker. Delete the folder and it's gone.
 
-> [!WARNING]
-> This has been built with AI support and therefore caution is advised.
-> This application has been proven to work on Windows, but other operating systems haven't been fully tested as yet (and remain theoretical).
-
 ## Quick start
 
 1. Copy the executable for your system to a folder, for example `C:\QuickSpin\` or `~/QuickSpin/`:
@@ -57,9 +53,19 @@ Chromium is started with `--host-resolver-rules`. That flag maps `*.test` and ev
 
 - **`.test` domains** work immediately.
 - **Other domains** (`client.co.uk`, `staging.client.io`, …) work too. The browser needs one restart to pick them up, and the dashboard shows a button for it (open tabs are restored).
-- **`.dev`, `.app` and similar** HSTS-preloaded domains are rejected, because browsers force them onto HTTPS.
+- **`.dev`, `.app` and similar** HSTS-preloaded domains need HTTPS turned on for the project, because browsers only open them over HTTPS.
 
 Your normal browser is unaffected. The sites are reachable only through QuickSpin's Chromium.
+
+## HTTPS
+
+New projects use HTTPS by default. You can switch it on or off for any project in **Settings**. Switching rewrites the site's URLs in the database between `http://` and `https://`.
+
+- **No certificate warnings, nothing installed.** On first use QuickSpin creates its own certificate authority in `data\tls`. FrankenPHP issues each site's certificate from it, including wildcards for multisite. Only QuickSpin's Chromium trusts this authority, through a launch flag that names the authority's keys. Windows, macOS and your normal browsers are not changed, and no admin rights are needed.
+- **One address per site.** HTTPS sites are served on port 47443. `http://` links to them are redirected to `https://`.
+- **WordPress sees a real HTTPS site.** `is_ssl()` is true, cookies are `Secure`, and browser features that need HTTPS work: service workers, `crypto.subtle`, payment-provider iframes, `SameSite=None` cookies.
+- **Publishing is unaffected.** Local `https://` URLs are turned back into the production URL when you publish or export.
+- Keep `data\tls` private: anyone with its keys could make certificates that QuickSpin's browser trusts. Deleting the folder creates a new authority on the next start.
 
 ## What happens when you create a project
 
@@ -220,6 +226,7 @@ QuickSpin/
     mysql\          database files (MariaDB or MySQL)
     php\<version>\  generated php.ini files; on macOS and Linux also bin/php for terminals and editors
     web\            generated FrankenPHP (Caddy) configuration, one per PHP version
+    tls\            local HTTPS certificate authority (keep private)
     browser\        Chromium profile (bookmarks, logins, extensions)
     vscode\         editor settings and extensions
     workspaces\     .code-workspace per project
@@ -232,7 +239,7 @@ QuickSpin/
 
 | Key | Default | Notes |
 |---|---|---|
-| `ports.dashboard` / `http` / `editor` / `mariadb` | 47080 / 47081 / 47082 / 47306 | Everything binds to 127.0.0.1 |
+| `ports.dashboard` / `http` / `https` / `editor` / `mariadb` | 47080 / 47081 / 47443 / 47082 / 47306 | Everything binds to 127.0.0.1 |
 | `defaultPhp` | `8.5` | PHP 8.5 is the version QuickSpin offers |
 | `phpWorkers` | 8 | PHP threads per FrankenPHP process |
 | `frankenphpBuilds` | warpcoil/FrankenPHP-XDebug latest release | Where to find `manifest.json` and the FrankenPHP + Xdebug packages |
@@ -261,7 +268,8 @@ The database login for your own tools is `127.0.0.1:47306`, user `quickspin`, pa
 - Private repositories need working Git credentials: Git for Windows' credential manager, or an SSH key for `git@` URLs.
 - Composer and Node builds are not run automatically. Run them in the editor's terminal (Bedrock needs `composer install`).
 - Windows SmartScreen may warn about an unsigned executable the first time it runs.
-- Sites run on plain HTTP; HTTPS dev certificates aren't included.
+- HTTPS sites are trusted only in QuickSpin's Chromium. Tools outside it (curl, Postman, PHP's own requests to the site) don't know the local certificate authority. You can import `data\tls\root.crt` into a tool yourself if you need to.
+- To make the certificate flag work, Chromium is started with `--test-type`, which hides its "unsupported command-line flag" warning bar.
 
 ## Downloads
 

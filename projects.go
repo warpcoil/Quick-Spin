@@ -36,6 +36,7 @@ type Project struct {
 	SitePath  string      `json:"sitePath,omitempty"` // sub-path of siteurl (e.g. "/wp")
 	PHP       string      `json:"php"`                //
 	Debug     bool        `json:"debug"`              // WP_DEBUG + display
+	HTTPS     bool        `json:"https,omitempty"`    // served over https with QuickSpin's local CA
 	Multisite bool        `json:"multisite,omitempty"`
 	Remote    *RemoteSpec `json:"remote,omitempty"` // live site this project was copied from (Source "ssh")
 	Status    string      `json:"status"`           // new | provisioning | ready | error
@@ -45,7 +46,14 @@ type Project struct {
 }
 
 func (p *Project) DocRoot() string { return filepath.Join(p.Path, filepath.FromSlash(p.WebRoot)) }
-func (p *Project) URL() string     { return "http://" + p.Domains[0] }
+func (p *Project) URL() string     { return p.Scheme() + "://" + p.Domains[0] }
+
+func (p *Project) Scheme() string {
+	if p.HTTPS {
+		return "https"
+	}
+	return "http"
+}
 
 type Store struct {
 	mu       sync.Mutex
@@ -180,8 +188,7 @@ func slugify(s string) string {
 
 var domainRe = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}$`)
 
-// TLDs on the HSTS preload list force https in Chromium, which our plain-http
-// dev sites can't serve.
+// TLDs on the HSTS preload list force https in Chromium: they need an HTTPS project.
 var hstsTLDs = map[string]bool{"dev": true, "app": true, "page": true, "new": true, "day": true, "foo": true, "zip": true, "mov": true, "bank": true, "insurance": true, "meme": true, "nexus": true, "phd": true, "prof": true, "esq": true, "ing": true, "boo": true, "dad": true, "channel": true, "rsvp": true, "how": true, "soy": true, "gle": true, "google": true}
 
 func normalizeDomains(raw []string) ([]string, error) {
@@ -198,10 +205,6 @@ func normalizeDomains(raw []string) ([]string, error) {
 			if !domainRe.MatchString(part) {
 				return nil, fmt.Errorf("%q is not a valid domain name (example: mysite.test)", part)
 			}
-			tld := part[strings.LastIndex(part, ".")+1:]
-			if hstsTLDs[tld] {
-				return nil, fmt.Errorf("%q uses .%s, which browsers force onto HTTPS — use something like %s.test instead", part, tld, strings.TrimSuffix(part, "."+tld))
-			}
 			if strings.HasSuffix(part, "quickspin.test") {
 				return nil, fmt.Errorf("%s is reserved for QuickSpin itself", part)
 			}
@@ -213,6 +216,20 @@ func normalizeDomains(raw []string) ([]string, error) {
 		return nil, fmt.Errorf("at least one domain is required (example: mysite.test)")
 	}
 	return out, nil
+}
+
+// checkDomainsScheme rejects HSTS-preloaded TLDs (.dev, .app …) on plain-http projects.
+func checkDomainsScheme(domains []string, https bool) error {
+	if https {
+		return nil
+	}
+	for _, d := range domains {
+		tld := d[strings.LastIndex(d, ".")+1:]
+		if hstsTLDs[tld] {
+			return fmt.Errorf("%q uses .%s, which browsers only open over HTTPS — turn on HTTPS for this project or use something like %s.test", d, tld, strings.TrimSuffix(d, "."+tld))
+		}
+	}
+	return nil
 }
 
 func urlQueryEscape(s string) string { return url.QueryEscape(s) }
