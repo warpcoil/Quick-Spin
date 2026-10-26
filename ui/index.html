@@ -125,7 +125,7 @@ pre.log{background:#0b0e12;color:#cfd6df;font:12px/1.5 var(--mono);padding:12px;
 <dialog id="newDlg"><form method="dialog" onsubmit="return createProject(event)">
   <div class="dhead"><h3>New project</h3><button type="button" onclick="newDlg.close()">✕</button></div>
   <div class="dbody">
-    <div class="tabs"><button type="button" id="tabGit" class="on" onclick="setSource('git')">Clone a Git repository</button><button type="button" id="tabLocal" onclick="setSource('local')">Use a folder on this PC</button></div>
+    <div class="tabs"><button type="button" id="tabGit" class="on" onclick="setSource('git')">Git repository</button><button type="button" id="tabSsh" onclick="setSource('ssh')">Live site (SSH)</button><button type="button" id="tabLocal" onclick="setSource('local')">Folder on this PC</button></div>
     <div id="gitFields">
       <label>Repository URL</label>
       <input name="repoUrl" placeholder="https://github.com/acme/site.git  or  git@bitbucket.org:acme/site.git" oninput="suggest()">
@@ -134,6 +134,26 @@ pre.log{background:#0b0e12;color:#cfd6df;font:12px/1.5 var(--mono);padding:12px;
         <div><label>Branch</label><input name="branch" placeholder="default branch"></div>
         <div><label class="check" style="margin-top:36px"><input type="checkbox" name="shallow"> Shallow clone (faster, no history)</label></div>
       </div>
+    </div>
+    <div id="sshFields" hidden>
+      <div class="row">
+        <div><label>Server</label><input name="sshHost" placeholder="example.com · user@example.com · SSH config alias" oninput="suggest()"></div>
+        <div class="row" style="grid-template-columns:1fr 84px;gap:8px"><div><label>User</label><input name="sshUser" placeholder="from SSH config"></div><div><label>Port</label><input name="sshPort" inputmode="numeric" placeholder="22"></div></div>
+      </div>
+      <label>WordPress folder on the server</label><input name="sshPath" placeholder="/var/www/html  ·  ~/public_html">
+      <div class="row">
+        <div><label>SSH key file <span class="hint">(optional)</span></label><input name="sshKey" placeholder="SSH agent / your default keys"></div>
+        <div><label>SSH password <span class="hint">(if no key)</span></label><input name="sshPassword" type="password" autocomplete="off"></div>
+      </div>
+      <div class="hint">Uses this computer's <code>ssh</code>, so your keys, SSH agent and <code>~/.ssh/config</code> aliases work. Passwords stay in memory only and are never saved.</div>
+      <label class="check"><input type="checkbox" name="copyUploads" checked> Copy the media library (wp-content/uploads)</label>
+      <div class="hint">Untick for large media libraries: images and files that weren't copied load from the live site instead.</div>
+      <details><summary>Database (optional — read from wp-config.php on the server)</summary>
+        <div class="row"><div><label>Database name</label><input name="dbName"></div><div><label>User</label><input name="dbUser"></div></div>
+        <div class="row"><div><label>Password</label><input name="dbPassword" type="password" autocomplete="off"></div><div><label>Host</label><input name="dbHost" placeholder="localhost"></div></div>
+      </details>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button type="button" id="testBtn" onclick="testSSH()">Test connection</button><span class="hint" id="testRes" style="margin:0"></span></div>
+      <div id="testInfo"></div>
     </div>
     <div id="localFields" hidden>
       <label>Folder</label><input name="localPath" placeholder="C:\Sites\my-site" oninput="suggest()">
@@ -145,7 +165,7 @@ pre.log{background:#0b0e12;color:#cfd6df;font:12px/1.5 var(--mono);padding:12px;
     </div>
     <label>Domains</label><input name="domains" placeholder="my-site.test, www.my-site.test">
     <div class="hint">First one is the main URL. <code>.test</code> domains work instantly; others need a browser restart.</div>
-    <details><summary>Where things are in the repository (optional — auto-detected)</summary>
+    <details id="repoDetails"><summary>Where things are in the repository (optional — auto-detected)</summary>
       <label>Web root (PHP files)</label><input name="webRoot" placeholder="auto-detect   ·   e.g. public   ·   . for the repository root">
       <label>Database dump</label><input name="dumpPath" placeholder="auto-detect   ·   e.g. db/site.sql.gz   ·   - for a fresh install">
       <div class="hint">.sql, .sql.gz and .sql.zip are supported. A committed <code>.quickspin.json</code> can set these for your whole team.</div>
@@ -154,6 +174,27 @@ pre.log{background:#0b0e12;color:#cfd6df;font:12px/1.5 var(--mono);padding:12px;
     <div class="err" id="newErr" hidden style="margin-top:12px"></div>
   </div>
   <div class="dfoot"><button type="button" onclick="newDlg.close()">Cancel</button><button class="primary" id="createBtn">Create project</button></div>
+</form></dialog>
+
+<!-- Publish -->
+<dialog id="pubDlg"><form method="dialog" onsubmit="return doPublish(event)">
+  <div class="dhead"><h3 id="pubTitle">Publish</h3><button type="button" onclick="pubDlg.close()">✕</button></div>
+  <div class="dbody" id="pubBody"></div>
+  <div class="dfoot"><button type="button" onclick="pubDlg.close()">Cancel</button><button class="primary" id="pubBtn" disabled>Publish</button></div>
+</form></dialog>
+
+<!-- Refresh from live -->
+<dialog id="pullDlg"><form method="dialog" onsubmit="return doPull(event)">
+  <div class="dhead"><h3>Refresh from live site</h3><button type="button" onclick="pullDlg.close()">✕</button></div>
+  <div class="dbody">
+    <p class="hint" style="font-size:13px">Copies the current state of <span class="mono" id="pullFrom"></span> again.</p>
+    <label class="check"><input type="radio" name="what" value="db" checked> Database only <span class="hint">— keeps your local file changes</span></label>
+    <label class="check"><input type="radio" name="what" value="all"> Files and database <span class="hint">— replaces the local files too</span></label>
+    <label>SSH password <span class="hint">(only if the server needs one; remembered until QuickSpin closes)</span></label>
+    <input type="password" name="sshPassword" autocomplete="off">
+    <div class="err" style="margin-top:12px;color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)">Your local database — posts, settings and users you changed locally — is replaced by the live one.</div>
+  </div>
+  <div class="dfoot"><button type="button" onclick="pullDlg.close()">Cancel</button><button class="primary">Refresh</button></div>
 </form></dialog>
 
 <!-- Job log -->
@@ -287,12 +328,15 @@ function card(p) {
      <div class="progress ${job.progress < 0 ? 'indet' : ''}"><div style="width:${Math.max(3, job.progress || 0)}%"></div></div>` : '';
   const err = p.status === 'error' && !busy ? `<div class="err">${esc(p.error)} · <a href="#" onclick="showLog('${p.slug}');return false">view log</a></div>` : '';
   const aliases = p.domains.slice(1).map(d => `<a href="http://${esc(d)}" target="_blank">${esc(d)}</a>`).join(', ');
-  const src = p.source === 'git' ? `${esc(p.repoUrl)}${p.branch ? ' @ ' + esc(p.branch) : ''}` : esc(p.path);
+  const src = p.source === 'git' ? `${esc(p.repoUrl)}${p.branch ? ' @ ' + esc(p.branch) : ''}`
+    : p.source === 'ssh' && p.remote ? `ssh ${esc(p.remote.user ? p.remote.user + '@' : '')}${esc(p.remote.host)}:${esc(p.remote.path)}${p.remote.uploads === 'live' ? ' · media from live' : ''}`
+    : esc(p.path);
   return `<div class="card">
     <h2><span class="name" title="${esc(p.name)}">${esc(p.name)}</span><span class="pill ${esc(p.status)}">${busy ? 'working' : esc(p.status)}</span>
       <span style="flex:1"></span>
       <div class="menu" id="m-${p.slug}"><button onclick="toggleMenu(event,'m-${p.slug}')">⋯</button><div class="menu-list">
         ${p.source === 'git' ? `<button onclick="act('${p.slug}','pull')">Git pull</button>` : ''}
+        ${p.source === 'ssh' ? `<button onclick="openPull('${p.slug}')">Refresh from live…</button>` : ''}
         <button onclick="act('${p.slug}','rebuild')">Rebuild (re-import database)</button>
         <button onclick="openExport('${p.slug}')">Export database…</button>
         <hr><button onclick="openSettings('${p.slug}')">Settings…</button>
@@ -311,6 +355,7 @@ function card(p) {
     ${prog}${err}
     <div class="actions">
       <a class="btn primary" href="${esc(p.url)}" target="_blank" ${ready ? '' : 'style="pointer-events:none;opacity:.5"'}>Open site</a>
+      ${p.publishTo && ready ? `<button onclick="openPublish('${p.slug}')" title="${p.publishTo === 'git' ? 'Commit and push to the repository' : 'Upload changes to the live site'}">Publish…</button>` : ''}
       <a class="btn" href="/api/projects/${p.slug}/login" target="_blank" ${ready ? '' : 'style="pointer-events:none;opacity:.5"'} title="Logs you in as the first administrator">WP Admin</a>
       ${p.editorUrl ? `<a class="btn" href="${esc(p.editorUrl)}" target="_blank">Edit code</a>` : ''}
       ${p.xdebug ? `<a class="btn" href="${esc(p.debugUrl)}" target="_blank" title="Starts an Xdebug session cookie; run 'Listen for Xdebug' in the editor first">Debug</a>` : `<span class="btn" style="opacity:.5;cursor:default" title="Xdebug is not available for PHP ${esc(p.runsPhp)} on this computer yet">Debug</span>`}
@@ -320,14 +365,49 @@ function card(p) {
 }
 
 // ---------- create ----------
-function setSource(s) { source = s; $('#tabGit').classList.toggle('on', s === 'git'); $('#tabLocal').classList.toggle('on', s === 'local'); $('#gitFields').hidden = s !== 'git'; $('#localFields').hidden = s !== 'local'; suggest(); }
-function openNew() { const f = $('#newDlg form'); f.reset(); f._auto = true; f._autoDom = true; $('#newErr').hidden = true; $('#phpSel').value = status.defaultPhp; setSource('git'); newDlg.showModal(); f.repoUrl.focus(); }
+function setSource(s) {
+  source = s;
+  for (const [tab, fields, v] of [['#tabGit', '#gitFields', 'git'], ['#tabSsh', '#sshFields', 'ssh'], ['#tabLocal', '#localFields', 'local']]) {
+    $(tab).classList.toggle('on', s === v); $(fields).hidden = s !== v;
+  }
+  $('#repoDetails').hidden = s === 'ssh';
+  $('#createBtn').textContent = s === 'ssh' ? 'Copy live site' : 'Create project';
+  suggest();
+}
+function openNew() { const f = $('#newDlg form'); f.reset(); f._auto = true; f._autoDom = true; $('#newErr').hidden = true; $('#testRes').textContent = ''; $('#testInfo').innerHTML = ''; $('#phpSel').value = status.defaultPhp; setSource('git'); newDlg.showModal(); f.repoUrl.focus(); }
+function hostName(h) {
+  h = h.trim().toLowerCase().replace(/^[^@]*@/, '').replace(/^www\./, '');
+  if (/^[\d.]+$/.test(h) || h.includes(':')) return 'live-site';
+  const parts = h.split('.');
+  if (parts.length >= 3 && parts[parts.length - 2].length <= 3) parts.splice(-2); else if (parts.length >= 2) parts.pop();
+  return parts.pop() || h;
+}
+function remoteFromForm(f) {
+  return { host: f.sshHost.value, user: f.sshUser.value, port: parseInt(f.sshPort.value, 10) || 0, path: f.sshPath.value, keyFile: f.sshKey.value,
+    uploads: f.copyUploads.checked ? 'copy' : 'live', dbName: f.dbName.value, dbUser: f.dbUser.value, dbHost: f.dbHost.value };
+}
+async function testSSH() {
+  const f = $('#newDlg form'), btn = $('#testBtn'), res = $('#testRes'), box = $('#testInfo');
+  btn.disabled = true; res.textContent = 'Connecting…'; box.innerHTML = '';
+  try {
+    const d = await api('POST', '/api/remote/test', { remote: remoteFromForm(f), sshPassword: f.sshPassword.value, dbPassword: f.dbPassword.value });
+    const i = d.info;
+    res.innerHTML = '<span style="color:var(--ok)">✔ Connected</span>';
+    box.innerHTML = `<div class="kv" style="margin-top:10px;font-size:12px">
+      <span>Folder</span><span class="mono">${esc(i.path)}${i.wordpress ? ' · WordPress found' : ''}</span>
+      <span>Database</span><span class="mono">${esc(i.dbName || '?')} · user ${esc(i.dbUser || '?')} · ${esc(i.dbHost)}${i.dbPasswordFound ? '' : ' · no password found'}</span>
+      <span>Size</span><span>${i.sizeMb} MB${i.uploadsMb ? ` (media ${i.uploadsMb} MB)` : ''}</span>
+      <span>Copy with</span><span>${i.tar ? 'tar over ssh' : 'scp'} · ${esc(i.mysqldump || 'no mysqldump')}</span></div>
+      ${(i.warnings || []).map(w => `<div class="err" style="margin-top:8px;color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)">${esc(w)}</div>`).join('')}`;
+  } catch (err) { res.innerHTML = ''; box.innerHTML = `<div class="err" style="margin-top:10px">${esc(err.message)}</div>`; }
+  finally { btn.disabled = false; }
+}
 function slugify(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
 function suggest() {
   const f = $('#newDlg form');
   const src = source === 'git' ? f.repoUrl.value : f.localPath.value.replace(/\\/g, '/');
   const m = src.trim().match(/([^\/:]+?)(\.git)?\/?$/);
-  if (!f.name.value || f._auto) { f.name.value = m ? m[1] : ''; f._auto = true; }
+  if (!f.name.value || f._auto) { f.name.value = source === 'ssh' ? (f.sshHost.value.trim() ? hostName(f.sshHost.value) : '') : (m ? m[1] : ''); f._auto = true; }
   suggestDomain();
 }
 function suggestDomain() { const f = $('#newDlg form'); if (!f.domains.value || f._autoDom) { const s = slugify(f.name.value); f.domains.value = s ? s + '.test' : ''; f._autoDom = true; } }
@@ -337,10 +417,12 @@ async function createProject(e) {
   const f = e.target, btn = $('#createBtn');
   btn.disabled = true;
   try {
-    const r = await api('POST', '/api/projects', {
+    const body = {
       source, repoUrl: f.repoUrl.value, branch: f.branch.value, shallow: f.shallow.checked, localPath: f.localPath.value,
       name: f.name.value, domains: f.domains.value, php: f.php.value, webRoot: f.webRoot.value, dumpPath: f.dumpPath.value, debug: f.debug.checked,
-    });
+    };
+    if (source === 'ssh') Object.assign(body, { remote: remoteFromForm(f), sshPassword: f.sshPassword.value, dbPassword: f.dbPassword.value, webRoot: '', dumpPath: '' });
+    const r = await api('POST', '/api/projects', body);
     newDlg.close();
     await loadProjects();
     showLog(r.project.slug, r.job);
@@ -353,6 +435,99 @@ async function createProject(e) {
 async function act(slug, action, body) {
   try { const r = await api('POST', `/api/projects/${slug}/${action}`, body || {}); await loadProjects(); showLog(slug, r.job); }
   catch (err) { toast(err.message); }
+}
+// ---------- publish ----------
+let pub = null;
+const warnBox = t => `<div class="err" style="margin-top:10px;color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)">${t}</div>`;
+function fileList(title, list, open) {
+  if (!list || !list.length) return '';
+  return `<details ${open ? 'open' : ''} style="margin-top:8px"><summary>${title} (${list.length})</summary><div class="mono" style="font-size:12px;max-height:160px;overflow:auto;white-space:pre;margin-top:4px">${list.slice(0, 500).map(esc).join('\n')}${list.length > 500 ? '\n…' : ''}</div></details>`;
+}
+async function openPublish(slug, password) {
+  current = projects.find(p => p.slug === slug); pub = null;
+  $('#pubTitle').textContent = `Publish ${current.name}` + (current.publishTo === 'git' ? ' to Git' : ' to the live site');
+  $('#pubBody').innerHTML = '<p class="hint">Comparing with ' + (current.publishTo === 'git' ? 'the repository' : 'the live site') + '…</p>';
+  $('#pubBtn').disabled = true;
+  if (!pubDlg.open) pubDlg.showModal();
+  try {
+    pub = await api('POST', `/api/projects/${slug}/publish-preview`, { sshPassword: password || '' });
+  } catch (err) {
+    const pw = current.publishTo === 'ssh';
+    const msg = pw && /refused the login/.test(err.message) && !password ? 'This server needs your SSH password (QuickSpin only keeps it in memory, so it is asked for again after a restart).' : err.message;
+    $('#pubBody').innerHTML = `<div class="err" style="margin-top:12px">${esc(msg)}</div>` + (pw ? `<label>SSH password</label><div style="display:flex;gap:8px"><input type="password" id="pubPw" autocomplete="off"><button type="button" onclick="openPublish('${slug}', $('#pubPw').value)">Retry</button></div>` : '');
+    return;
+  }
+  pub.kind === 'git' ? renderGitPublish(pub.git) : renderSSHPublish(pub.ssh);
+}
+function renderGitPublish(g) {
+  const nothing = !(g.changes || []).length && !g.ahead;
+  $('#pubBody').innerHTML = `
+    <div class="kv"><span>Branch</span><span class="mono">${esc(g.branch)}${g.upstream ? ' → ' + esc(g.upstream) : ' (new on the server)'}</span>
+    ${g.ahead || g.behind ? `<span>Status</span><span>${g.ahead} commit(s) to push${g.behind ? `, ${g.behind} new on the server (QuickSpin merges them in first; if they conflict with yours it stops and nothing is pushed)` : ''}</span>` : ''}</div>
+    ${g.warning ? warnBox(esc(g.warning)) : ''}
+    ${fileList('Changed files', g.changes, true)}
+    ${!(g.changes || []).length ? '<p class="hint">No file changes.</p>' : ''}
+    <label class="check"><input type="checkbox" name="includeDatabase" ${g.oldUrl ? '' : 'disabled'}> Include the database <span class="hint">— exported to ${esc(g.dumpPath || 'database.sql.gz')} with the production URL ${esc(g.oldUrl || '(unknown)')}</span></label>
+    <label>Commit message</label><input name="message" placeholder="What did you change?">
+    ${g.needsIdentity ? `<div class="row"><div><label>Your name <span class="hint">(for commits)</span></label><input name="authorName"></div><div><label>Email</label><input name="authorEmail" type="email"></div></div><div class="hint">Saved in this repository's Git settings.</div>` : ''}`;
+  const f = $('#pubDlg form'), btn = $('#pubBtn');
+  btn.textContent = 'Commit & push';
+  const check = () => { btn.disabled = !!g.warning || (nothing && !f.includeDatabase.checked) || (g.needsIdentity && !(f.authorName.value.trim() && f.authorEmail.value.includes('@'))); };
+  f.oninput = f.onchange = check; check();
+}
+function renderSSHPublish(s) {
+  const nFiles = (s.new || []).length + (s.changed || []).length;
+  const changedLive = s.dbChangedSinceLastPull === true, unknownLive = s.dbChangedSinceLastPull == null;
+  $('#pubBody').innerHTML = `
+    <p class="hint" style="font-size:13px">To <span class="mono">${esc(s.remote)}</span>. Everything replaced or deleted is backed up on the server first, in <span class="mono">${esc(s.backupsFolder)}</span>.</p>
+    ${s.noBaseline ? warnBox('QuickSpin has no record of the server at your last pull (the project was copied by an older version), so it cannot tell which files changed on the server since then. <b>Refresh files from live</b> first if others edit the live site.') : ''}
+    <label class="check" style="font-weight:600"><input type="checkbox" name="files" ${nFiles || (s.deleted || []).length || (s.conflicts || []).length ? 'checked' : 'disabled'}> Files <span class="hint" style="font-weight:400">— ${nFiles} to upload${s.liveChanged ? `; ${s.liveChanged} changed only on the server are left alone` : ''}</span></label>
+    <div style="margin-left:24px">
+      ${fileList('New', s.new)}${fileList('Changed', s.changed)}
+      ${(s.deleted || []).length ? `${fileList('Deleted locally', s.deleted)}<label class="check"><input type="checkbox" name="deleteRemoved"> Also delete these ${s.deleted.length} file(s) on the server</label>` : ''}
+      ${(s.conflicts || []).length ? `${fileList('Changed on both sides', s.conflicts, true)}<label class="check"><input type="checkbox" name="overwriteConflicts"> Overwrite them with my version <span class="hint">(otherwise they are skipped)</span></label>` : ''}
+      ${(s.skipped || []).length ? fileList('Existing media changed locally — never overwritten', s.skipped) : ''}
+      <div class="hint">wp-config.php, caches and existing media on the server are never changed.</div>
+    </div>
+    <label class="check" style="font-weight:600;margin-top:16px"><input type="checkbox" name="database" ${s.multisite || !s.oldUrl ? 'disabled' : ''}> Database <span class="hint" style="font-weight:400">— replace <span class="mono">${esc(s.dbName)}</span> on the live site with your local one (URLs back to ${esc(s.oldUrl || '?')})</span></label>
+    <div style="margin-left:24px" id="dbOpts" hidden>
+      ${changedLive ? warnBox(`<b>The live database changed since your last pull${s.lastPull ? ' (' + esc(s.lastPull) + ')' : ''}.</b> New orders, comments or sign-ups on the live site would be lost (they stay in the backup). Refresh from live and redo your changes, or:`) + '<label class="check"><input type="checkbox" name="confirmLiveChanged"> Replace it anyway</label>' : ''}
+      ${unknownLive ? warnBox('QuickSpin cannot tell whether the live database changed since your last pull.') : ''}
+      <label class="check"><input type="checkbox" name="confirmDatabase"> I understand the live database will be replaced (a backup is kept on the server)</label>
+    </div>
+    ${s.multisite ? '<div class="hint">Publishing the database of a multisite network is not supported yet.</div>' : ''}
+    <label>SSH password <span class="hint">(only if the server needs one)</span></label><input type="password" name="sshPassword" autocomplete="off">`;
+  const f = $('#pubDlg form'), btn = $('#pubBtn');
+  btn.textContent = 'Publish';
+  const check = () => {
+    $('#dbOpts').hidden = !f.database.checked;
+    const dbOk = !f.database.checked || (f.confirmDatabase.checked && (!changedLive || f.confirmLiveChanged.checked));
+    btn.disabled = !(f.files.checked || f.database.checked) || !dbOk;
+    btn.textContent = f.database.checked ? (f.files.checked ? 'Publish files and replace database' : 'Replace live database') : 'Publish files';
+  };
+  f.oninput = f.onchange = check; check();
+}
+function doPublish(e) {
+  e.preventDefault(); const f = e.target; if (!pub) return false;
+  const v = n => f[n] && f[n].checked;
+  const body = pub.kind === 'git'
+    ? { message: f.message.value, includeDatabase: v('includeDatabase'), authorName: f.authorName ? f.authorName.value : '', authorEmail: f.authorEmail ? f.authorEmail.value : '' }
+    : { files: v('files'), database: v('database'), deleteRemoved: v('deleteRemoved'), overwriteConflicts: v('overwriteConflicts'),
+        confirmDatabase: v('confirmDatabase'), confirmLiveChanged: v('confirmLiveChanged'), sshPassword: f.sshPassword.value };
+  pubDlg.close();
+  api('POST', `/api/projects/${current.slug}/publish`, body).then(r => { loadProjects(); showLog(current.slug, r.job); }).catch(err => toast(err.message));
+  return false;
+}
+function openPull(slug) {
+  current = projects.find(p => p.slug === slug);
+  const r = current.remote || {};
+  $('#pullFrom').textContent = `${r.user ? r.user + '@' : ''}${r.host}:${r.path}`;
+  $('#pullDlg form').reset(); pullDlg.showModal();
+}
+function doPull(e) {
+  e.preventDefault(); const f = e.target; pullDlg.close();
+  act(current.slug, 'pull-live', { files: f.what.value === 'all', sshPassword: f.sshPassword.value });
+  return false;
 }
 function openExport(slug) {
   current = projects.find(p => p.slug === slug);

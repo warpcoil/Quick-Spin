@@ -34,19 +34,20 @@ import (
 const bundleFormat = "quickspin-config"
 
 type bundleProject struct {
-	Slug      string   `json:"slug"`
-	Name      string   `json:"name"`
-	Domains   []string `json:"domains"`
-	Source    string   `json:"source"`
-	RepoURL   string   `json:"repoUrl,omitempty"`
-	Branch    string   `json:"branch,omitempty"`
-	LocalPath string   `json:"localPath,omitempty"`
-	WebRoot   string   `json:"webRoot"`
-	DumpPath  string   `json:"dumpPath"`
-	PHP       string   `json:"php"`
-	Debug     bool     `json:"debug"`
-	OrigURL   string   `json:"originalUrl,omitempty"`
-	Database  string   `json:"database,omitempty"` // path inside the zip
+	Slug      string      `json:"slug"`
+	Name      string      `json:"name"`
+	Domains   []string    `json:"domains"`
+	Source    string      `json:"source"`
+	RepoURL   string      `json:"repoUrl,omitempty"`
+	Branch    string      `json:"branch,omitempty"`
+	LocalPath string      `json:"localPath,omitempty"`
+	WebRoot   string      `json:"webRoot"`
+	DumpPath  string      `json:"dumpPath"`
+	PHP       string      `json:"php"`
+	Debug     bool        `json:"debug"`
+	OrigURL   string      `json:"originalUrl,omitempty"`
+	Remote    *RemoteSpec `json:"remote,omitempty"`   // live site (no passwords)
+	Database  string      `json:"database,omitempty"` // path inside the zip
 }
 
 type bundleManifest struct {
@@ -121,6 +122,7 @@ func (a *App) hExport(w http.ResponseWriter, r *http.Request) {
 			Slug: p.Slug, Name: p.Name, Domains: p.Domains, Source: p.Source,
 			RepoURL: stripCredentials(p.RepoURL), Branch: p.Branch,
 			WebRoot: p.WebRoot, DumpPath: p.DumpPath, PHP: p.PHP, Debug: p.Debug, OrigURL: p.OldURL,
+			Remote: p.Remote,
 		}
 		if p.Source == "local" {
 			bp.LocalPath = p.Path
@@ -221,9 +223,13 @@ func (a *App) classify(bp bundleProject) importItem {
 	if bp.Source == "local" {
 		it.Location = bp.LocalPath
 	}
+	if bp.Source == "ssh" && bp.Remote != nil {
+		it.Location = "ssh " + bp.Remote.label()
+	}
 	for _, p := range a.store.List() {
 		same := (bp.Source == "git" && p.RepoURL != "" && stripCredentials(p.RepoURL) == bp.RepoURL && p.Branch == bp.Branch) ||
-			(bp.Source == "local" && p.Path == bp.LocalPath)
+			(bp.Source == "local" && p.Path == bp.LocalPath) ||
+			(bp.Source == "ssh" && bp.Remote != nil && p.Remote != nil && p.Remote.Host == bp.Remote.Host && p.Remote.Path == bp.Remote.Path)
 		if same {
 			it.Status, it.Note = "exists", "already set up here as "+p.Name
 			return it
@@ -362,6 +368,7 @@ func (a *App) hImportApply(w http.ResponseWriter, r *http.Request) {
 			Name: bp.Name, Domains: strings.Join(bp.Domains, ", "), Source: bp.Source,
 			RepoURL: bp.RepoURL, Branch: bp.Branch, LocalPath: bp.LocalPath,
 			WebRoot: bp.WebRoot, DumpPath: bp.DumpPath, PHP: bp.PHP, Debug: bp.Debug, OrigURL: bp.OrigURL,
+			Remote: bp.Remote,
 		}
 		if phpIndex(cr.PHP) < 0 {
 			cr.PHP = "" // exported with a PHP version QuickSpin no longer offers: use the default

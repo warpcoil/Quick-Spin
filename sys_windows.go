@@ -97,3 +97,7 @@ func hideCmd(cmd *exec.Cmd) { applyProcAttr(cmd, true) }
 func processMatches(pid int, exe string) bool { return false }
 
 func killProcess(pid int) {}
+
+// newSession: Windows consoles are not inherited the same way; ssh uses SSH_ASKPASS
+// when SSH_ASKPASS_REQUIRE=force is set.
+func newSession(cmd *exec.Cmd) { applyProcAttr(cmd, true) }

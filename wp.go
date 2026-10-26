@@ -153,6 +153,10 @@ func (a *App) siteConstants(p *Project) map[string]any {
 		"FS_METHOD":                  "direct",
 		"AUTOMATIC_UPDATER_DISABLED": true,
 		"WP_AUTO_UPDATE_CORE":        false,
+		// Production settings that break a plain-HTTP local copy.
+		"FORCE_SSL_ADMIN": false,
+		"WP_CACHE":        false,
+		"COOKIE_DOMAIN":   false,
 	}
 	if p.Debug {
 		c["WP_DEBUG_LOG"] = filepath.ToSlash(a.data("logs", "wp-"+p.Slug+"-debug.log"))

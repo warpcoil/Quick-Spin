@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,9 @@ func (a *App) serveAPI(ln net.Listener) {
 	})
 	mux.HandleFunc("POST /api/open-folder", a.hOpenFolder)
 	mux.HandleFunc("GET /api/export", a.hExport)
+	mux.HandleFunc("POST /api/remote/test", a.hRemoteTest)
+	mux.HandleFunc("POST /api/projects/{slug}/publish-preview", a.hPublishPreview)
+	mux.HandleFunc("POST /api/projects/{slug}/publish", a.hPublish)
 	mux.HandleFunc("POST /api/import", a.hImportUpload)
 	mux.HandleFunc("POST /api/import/{id}/apply", a.hImportApply)
 	mux.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, r *http.Request) {
@@ -165,6 +169,7 @@ type projectView struct {
 	DebugURL   string         `json:"debugUrl"`
 	Xdebug     bool           `json:"xdebug"`
 	RunsPHP    string         `json:"runsPhp"`
+	PublishTo  string         `json:"publishTo"` // "git", "ssh" or ""
 }
 
 func (a *App) view(p *Project) projectView {
@@ -176,6 +181,7 @@ func (a *App) view(p *Project) projectView {
 		v.AdminerURL = fmt.Sprintf("http://%s/?db=%s", a.dbAdminHost(), p.DBName)
 	}
 	v.DebugURL = p.URL() + "/?XDEBUG_SESSION_START=quickspin"
+	v.PublishTo = a.publishKind(p)
 	v.RunsPHP = a.projectPHP(p)
 	v.Xdebug = a.xdebugModule(v.RunsPHP) != ""
 	if j := a.jobs.Latest(p.Slug); j != nil {
@@ -247,8 +253,11 @@ func (a *App) hAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ToRepo       bool `json:"toRepo"`
-		OriginalURLs bool `json:"originalUrls"`
+		ToRepo       bool   `json:"toRepo"`
+		OriginalURLs bool   `json:"originalUrls"`
+		Files        bool   `json:"files"`
+		SSHPassword  string `json:"sshPassword"`
+		DBPassword   string `json:"dbPassword"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	var fn func(j *Job) error
@@ -258,6 +267,18 @@ func (a *App) hAction(w http.ResponseWriter, r *http.Request) {
 		label, fn = "Git pull", func(j *Job) error { return a.actionPull(j, slug) }
 	case "rebuild":
 		label, fn = "Rebuild (re-import database)", func(j *Job) error { return a.actionRebuild(j, slug) }
+	case "pull-live":
+		if p.Remote == nil {
+			writeErr(w, fmt.Errorf("%s was not copied from a live site", p.Name))
+			return
+		}
+		rememberSecrets(slug, remoteSecrets{SSHPassword: body.SSHPassword, DBPassword: body.DBPassword})
+		files := body.Files
+		label = "Refresh database from live"
+		if files {
+			label = "Refresh files and database from live"
+		}
+		fn = func(j *Job) error { return a.pullLive(j, slug, files) }
 	case "export":
 		label, fn = "Export database", func(j *Job) error { return a.actionExport(j, slug, body.ToRepo, body.OriginalURLs) }
 	default:
@@ -365,4 +386,100 @@ func (a *App) hOpenFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	go c.Wait()
 	writeJSON(w, 200, map[string]any{"ok": true, "path": dir})
+}
+
+// hRemoteTest connects to a live server and reports what QuickSpin found there.
+func (a *App) hRemoteTest(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Remote      RemoteSpec `json:"remote"`
+		SSHPassword string     `json:"sshPassword"`
+		DBPassword  string     `json:"dbPassword"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := body.Remote.normalize(); err != nil {
+		writeErr(w, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	info, err := a.inspectRemote(ctx, &body.Remote, remoteSecrets{SSHPassword: body.SSHPassword, DBPassword: body.DBPassword})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "info": info, "suggestedName": siteNameFromHost(body.Remote.Host)})
+}
+
+// hPublishPreview shows what publishing would do.
+func (a *App) hPublishPreview(w http.ResponseWriter, r *http.Request) {
+	p := a.store.Get(r.PathValue("slug"))
+	if p == nil {
+		writeErr(w, errNotFound)
+		return
+	}
+	var body struct {
+		SSHPassword string `json:"sshPassword"`
+		Files       *bool  `json:"files"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if a.jobs.Busy(p.Slug) {
+		writeErr(w, fmt.Errorf("%s is busy — wait for the running task to finish", p.Name))
+		return
+	}
+	switch a.publishKind(p) {
+	case "git":
+		pv, err := a.gitPreview(p)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"kind": "git", "git": pv})
+	case "ssh":
+		rememberSecrets(p.Slug, remoteSecrets{SSHPassword: body.SSHPassword})
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+		defer cancel()
+		pv, err := a.sshPreview(ctx, p, recallSecrets(p.Slug), body.Files == nil || *body.Files)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"kind": "ssh", "ssh": pv})
+	default:
+		writeErr(w, fmt.Errorf("%s has nowhere to publish to: it is neither a Git repository nor a copy of a live site", p.Name))
+	}
+}
+
+func (a *App) hPublish(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	p := a.store.Get(slug)
+	if p == nil {
+		writeErr(w, errNotFound)
+		return
+	}
+	var req PublishRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	var fn func(j *Job) error
+	label := ""
+	switch a.publishKind(p) {
+	case "git":
+		label, fn = "Publish to Git", func(j *Job) error { return a.publishGit(j, slug, req) }
+	case "ssh":
+		rememberSecrets(slug, remoteSecrets{SSHPassword: req.SSHPassword})
+		label, fn = "Publish to live site", func(j *Job) error { return a.publishSSH(j, slug, req) }
+	default:
+		writeErr(w, fmt.Errorf("%s has nowhere to publish to", p.Name))
+		return
+	}
+	j, err := a.jobs.Run(slug, label, fn)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"job": j.ID})
 }

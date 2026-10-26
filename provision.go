@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +27,11 @@ type CreateRequest struct {
 	DumpPath  string `json:"dumpPath"` // "" = auto-detect, "-" = no dump (fresh install)
 	PHP       string `json:"php"`
 	Debug     bool   `json:"debug"`
+
+	// Copy a live site over SSH (Source "ssh"). Passwords are kept in memory only.
+	Remote      *RemoteSpec `json:"remote"`
+	SSHPassword string      `json:"sshPassword"`
+	DBPassword  string      `json:"dbPassword"`
 
 	// Set by configuration import only.
 	DumpFile string `json:"-"` // database to import instead of the repository's dump
@@ -50,11 +56,19 @@ func (a *App) createProject(req CreateRequest) (*Project, *Job, error) {
 	}
 	req.RepoURL = strings.TrimSpace(req.RepoURL)
 	req.LocalPath = strings.TrimSpace(req.LocalPath)
+	if req.Source == "ssh" && req.Remote != nil {
+		if err := req.Remote.normalize(); err != nil {
+			return nil, nil, err
+		}
+	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		src := req.RepoURL
 		if req.Source == "local" {
 			src = filepath.ToSlash(req.LocalPath)
+		}
+		if req.Source == "ssh" && req.Remote != nil {
+			src = siteNameFromHost(req.Remote.Host)
 		}
 		if m := repoNameRe.FindStringSubmatch(src); m != nil {
 			name = m[1]
@@ -93,6 +107,17 @@ func (a *App) createProject(req CreateRequest) (*Project, *Job, error) {
 		}
 		p.RepoURL, p.Branch = req.RepoURL, strings.TrimSpace(req.Branch)
 		p.Path, p.Managed = a.data("projects", slug), true
+	case "ssh":
+		if req.Remote == nil {
+			return nil, nil, fmt.Errorf("enter the live server's details")
+		}
+		r := *req.Remote
+		if err := r.normalize(); err != nil {
+			return nil, nil, err
+		}
+		p.Remote = &r
+		p.Path, p.Managed = a.data("projects", slug), true
+		p.WebRoot, p.DumpPath = liveWebRoot, liveDump
 	case "local":
 		abs, err := filepath.Abs(req.LocalPath)
 		if err != nil || !isDir(abs) {
@@ -110,6 +135,14 @@ func (a *App) createProject(req CreateRequest) (*Project, *Job, error) {
 		opts.php = req.PHP
 	}
 	shallow := req.Shallow
+	if req.Source == "ssh" {
+		rememberSecrets(slug, remoteSecrets{SSHPassword: req.SSHPassword, DBPassword: req.DBPassword})
+		j, err := a.jobs.Run(slug, "Copy live site", func(j *Job) error {
+			os.MkdirAll(p.Path, 0o755)
+			return a.pullLive(j, slug, true)
+		})
+		return p, j, err
+	}
 	j, err := a.jobs.Run(slug, "Create project", func(j *Job) error { return a.provision(j, slug, opts, shallow) })
 	return p, j, err
 }
@@ -159,7 +192,11 @@ func (a *App) provision(j *Job, slug string, o provisionOpts, shallow bool) (err
 	}
 
 	// 2. Layout: explicit > .quickspin.json > detection.
-	j.SetStep("Inspecting the repository", 12)
+	if p.Source == "ssh" {
+		j.SetStep("Inspecting the copied site", 12)
+	} else {
+		j.SetStep("Inspecting the repository", 12)
+	}
 	defs := readRepoDefaults(p.Path)
 	if defs != nil {
 		notes = append(notes, "settings read from .quickspin.json")
@@ -302,7 +339,11 @@ func (a *App) provision(j *Job, slug string, o provisionOpts, shallow bool) (err
 		rel, _ := filepath.Rel(p.Path, filepath.Join(core, "wp-config.php"))
 		excludeFromGit(p.Path, rel)
 	} else {
-		j.Logf("• using the repository's %s — QuickSpin injects the database settings, nothing is modified", filepath.Base(cfgFile))
+		if p.Source == "ssh" {
+			j.Logf("• using the site's %s — QuickSpin injects the local database settings and URLs", filepath.Base(cfgFile))
+		} else {
+			j.Logf("• using the repository's %s — QuickSpin injects the database settings, nothing is modified", filepath.Base(cfgFile))
+		}
 	}
 	if err := a.writeSupportFiles(); err != nil {
 		return err
@@ -406,7 +447,7 @@ func (a *App) actionExport(j *Job, slug string, toRepo, originalURLs bool) error
 		_ = oldO
 		scheme := strings.SplitN(p.OldURL, ":", 2)[0]
 		j.SetStep("Exporting with original URLs ("+p.OldURL+")", 20)
-		pat := `https?:(\\?/\\?/)` + regexp.QuoteMeta(p.Domains[0]) + `(?![\w-]|\.[\w-])`
+		pat := publishExportRegex(p.Domains[0]) // absolute, protocol-relative and JSON-escaped URLs
 		if _, err := a.wp(p, j, false, "search-replace", pat, scheme+`:${1}`+oldHost, "--regex", "--regex-delimiter=~", "--all-tables-with-prefix", "--skip-plugins", "--skip-themes", "--report-changed-only", "--export="+out); err != nil {
 			return err
 		}
@@ -616,4 +657,22 @@ func (a *App) ensureTheme(p *Project, j *Job) {
 	if _, err := a.wp(p, j, false, "theme", "install", "twentytwentyfive", "--activate", "--skip-plugins", "--skip-themes"); err != nil {
 		j.Logf("warning: no theme available — add one to wp-content/themes")
 	}
+}
+
+// siteNameFromHost turns "www.acme-prod.co.uk" into "acme-prod".
+func siteNameFromHost(host string) string {
+	if net.ParseIP(host) != nil {
+		return "live-site"
+	}
+	h := strings.ToLower(strings.TrimPrefix(strings.ToLower(host), "www."))
+	parts := strings.Split(h, ".")
+	if len(parts) >= 3 && len(parts[len(parts)-2]) <= 3 { // co.uk, com.au …
+		parts = parts[:len(parts)-2]
+	} else if len(parts) >= 2 {
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) == 0 || parts[len(parts)-1] == "" {
+		return h
+	}
+	return parts[len(parts)-1]
 }

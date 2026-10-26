@@ -19,28 +19,29 @@ import (
 // files live in data/projects/<slug> (or a folder you pointed at) and their
 // database in QuickSpin's MariaDB.
 type Project struct {
-	Slug      string    `json:"slug"`
-	Name      string    `json:"name"`
-	Domains   []string  `json:"domains"` // first one is the primary domain
-	Source    string    `json:"source"`  // "git" or "local"
-	RepoURL   string    `json:"repoUrl,omitempty"`
-	Branch    string    `json:"branch,omitempty"`
-	Path      string    `json:"path"`               // repository / project folder
-	Managed   bool      `json:"managed"`            // folder was created by QuickSpin (can be deleted with the project)
-	WebRoot   string    `json:"webRoot"`            // relative to Path: the folder served by the web server
-	DumpPath  string    `json:"dumpPath"`           // relative to Path: SQL dump (.sql / .sql.gz)
-	DBName    string    `json:"dbName"`             //
-	Prefix    string    `json:"tablePrefix"`        //
-	OldURL    string    `json:"oldUrl,omitempty"`   // site URL found in the dump
-	HomePath  string    `json:"homePath,omitempty"` // sub-path of home (e.g. "/blog"), usually empty
-	SitePath  string    `json:"sitePath,omitempty"` // sub-path of siteurl (e.g. "/wp")
-	PHP       string    `json:"php"`                //
-	Debug     bool      `json:"debug"`              // WP_DEBUG + display
-	Multisite bool      `json:"multisite,omitempty"`
-	Status    string    `json:"status"`          // new | provisioning | ready | error
-	Error     string    `json:"error,omitempty"` //
-	Created   time.Time `json:"created"`
-	Notes     []string  `json:"notes,omitempty"` // things worth knowing (detected layout, warnings)
+	Slug      string      `json:"slug"`
+	Name      string      `json:"name"`
+	Domains   []string    `json:"domains"` // first one is the primary domain
+	Source    string      `json:"source"`  // "git", "local" or "ssh" (copied from a live site)
+	RepoURL   string      `json:"repoUrl,omitempty"`
+	Branch    string      `json:"branch,omitempty"`
+	Path      string      `json:"path"`               // repository / project folder
+	Managed   bool        `json:"managed"`            // folder was created by QuickSpin (can be deleted with the project)
+	WebRoot   string      `json:"webRoot"`            // relative to Path: the folder served by the web server
+	DumpPath  string      `json:"dumpPath"`           // relative to Path: SQL dump (.sql / .sql.gz)
+	DBName    string      `json:"dbName"`             //
+	Prefix    string      `json:"tablePrefix"`        //
+	OldURL    string      `json:"oldUrl,omitempty"`   // site URL found in the dump
+	HomePath  string      `json:"homePath,omitempty"` // sub-path of home (e.g. "/blog"), usually empty
+	SitePath  string      `json:"sitePath,omitempty"` // sub-path of siteurl (e.g. "/wp")
+	PHP       string      `json:"php"`                //
+	Debug     bool        `json:"debug"`              // WP_DEBUG + display
+	Multisite bool        `json:"multisite,omitempty"`
+	Remote    *RemoteSpec `json:"remote,omitempty"` // live site this project was copied from (Source "ssh")
+	Status    string      `json:"status"`           // new | provisioning | ready | error
+	Error     string      `json:"error,omitempty"`  //
+	Created   time.Time   `json:"created"`
+	Notes     []string    `json:"notes,omitempty"` // things worth knowing (detected layout, warnings)
 }
 
 func (p *Project) DocRoot() string { return filepath.Join(p.Path, filepath.FromSlash(p.WebRoot)) }

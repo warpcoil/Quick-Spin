@@ -69,6 +69,89 @@ Your normal browser is unaffected. The sites are reachable only through QuickSpi
 
 If the repository has no dump, you get a fresh install with the login `admin` / `admin`.
 
+## Copying a live site over SSH
+
+**New project → Live site (SSH)** copies a running WordPress site from its server for local development and testing.
+
+You enter:
+
+- **Server:** a host name, `user@host`, or a `Host` alias from your `~/.ssh/config`. Port is optional.
+- **WordPress folder on the server:** for example `/var/www/html` or `~/public_html`.
+- **How to log in:** your SSH keys and SSH agent are used automatically. Alternatively, give a key file, or a password.
+
+Click **Test connection** to see what QuickSpin finds before copying: the folder, the database settings, the size, and whether `tar` and `mysqldump` are available.
+
+**What happens:**
+
+1. QuickSpin reads `wp-config.php` on the server for the database name, user, password and host. If they come from environment variables instead, enter them under *Database*.
+2. It copies the files as one compressed `tar` stream over SSH (or with `scp` if the server has no `tar`). Page caches, backups and `.git` are skipped.
+3. It runs `mysqldump` on the server and streams the dump back over the same SSH connection. The database password is passed through a temporary file that only your SSH user can read, never on a command line.
+4. It makes the copy safe to run locally:
+   - The production database password is removed from the local copy of `wp-config.php`. The server is never changed.
+   - The `object-cache.php` and `advanced-cache.php` cache drop-ins are disabled.
+   - `FORCE_SSL_ADMIN`, `WP_CACHE` and `COOKIE_DOMAIN` are overridden, because they break a plain-HTTP copy.
+5. It imports the database and rewrites the production URLs to your dev domain, like any other project.
+
+The copy is stored in `data/projects/<name>/`, with the site files in `public/` and the dump in `db/live.sql.gz`.
+
+**Large media libraries:** untick *Copy the media library*. Images and files that weren't copied are then loaded from the live site on demand. Anything you upload locally takes priority.
+
+**Refresh from live…** (in the project's ⋯ menu) copies the live site again:
+
+- **Database only** keeps your local file changes.
+- **Files and database** replaces the local files too.
+
+Either way, your local database changes are replaced by the live database.
+
+**Passwords:** SSH and database passwords are kept in memory only, and are never written to disk, logs or exports. After restarting QuickSpin, enter the password again when you refresh. Key-based login avoids this.
+
+QuickSpin uses this computer's own `ssh` and `scp`. They're built into Windows 10/11, macOS and Linux. A server's host key is remembered in your normal `known_hosts` file on first connection, and QuickSpin refuses to connect if that key changes later.
+
+## Publishing your work
+
+**Publish…** on a project card sends your work back to where the site came from. The dialog always shows what will happen before anything changes.
+
+### Git projects
+
+Publishing a Git project commits your changes and pushes them to the branch the project is on.
+
+- **Including the database (optional):** tick *Include the database* to export the local database into the repository's dump (e.g. `db/site.sql.gz`) with the production URLs restored, so it can be committed and deployed.
+- **When someone else pushed first:** QuickSpin fetches their changes, puts your commit on top, and pushes. If the changes conflict, it stops without pushing. Resolve the conflict in the editor and publish again.
+- **Git identity:** if Git doesn't know your name and email yet, the dialog asks for them. They're saved for that repository only.
+
+QuickSpin's generated files (a `wp-config.php` it created, or WordPress core it downloaded) are listed in `.git/info/exclude`, so they're never committed.
+
+### Live-site (SSH) projects
+
+Publishing a live-site project can send **changed files**, the **database**, or both.
+
+**Files.** QuickSpin compares your copy with the server and with the state recorded at your last pull.
+
+- **What gets uploaded:** files that are new or changed locally.
+- **What's left alone:** files that changed only on the server.
+- **Conflicts:** files changed both locally and on the server are skipped, unless you tick *Overwrite them*.
+- **Deletions:** files you deleted locally are only deleted on the server if you tick *Also delete*. Files created on the server after your pull are never deleted.
+- **Never touched:** `wp-config.php`, cache folders, backups and the cache drop-ins.
+- **Media (`wp-content/uploads`):** new files are uploaded, but existing ones are never overwritten or deleted.
+- **Backups:** every file that will be overwritten or deleted is first backed up on the server, to `~/quickspin-backups/<project>-<time>-files.tar.gz`.
+
+**Database.** This replaces the live database with your local one, with the URLs turned back into production URLs.
+
+1. The live database is first backed up on the server, to `~/quickspin-backups/<project>-<time>-db-<name>.sql.gz` (readable only by your SSH user).
+2. The local database is imported.
+3. The live object cache is flushed if WP-CLI is installed there.
+
+You have to confirm the replacement. QuickSpin also fingerprints the live database at every pull. If it changed since then (new orders, comments or sign-ups), the dialog warns you and asks for a second confirmation, because those changes would be lost (they remain in the backup). The safer route is **Refresh from live → Database only**, then redo your database changes.
+
+**Restoring a backup on the server:**
+
+```
+gunzip -c ~/quickspin-backups/<file>-db-<name>.sql.gz | mysql <database>
+tar -xzf ~/quickspin-backups/<file>-files.tar.gz -C /path/to/site
+```
+
+**Limitations:** publishing the database of a multisite network isn't supported yet. For projects copied before this version, use **Refresh from live** once, so that QuickSpin can record the server's state and tell server changes from yours.
+
 ### Committing the layout for your team
 
 You can skip auto-detection by committing a `.quickspin.json` file at the repository root:
@@ -167,6 +250,7 @@ The database login for your own tools is `127.0.0.1:47306`, user `quickspin`, pa
 
 ## Known limitations
 
+- **Password logins for live sites on Windows** rely on the Windows OpenSSH client supporting `SSH_ASKPASS`. If a password login fails there, use an SSH key.
 - **Testing so far:** QuickSpin was tested end to end on Linux. The Windows and macOS builds compile and share all of that code, but haven't been run on those systems yet.
 - **macOS:** the executable isn't signed. The first time, right-click it and choose **Open** (or run `xattr -d com.apple.quarantine quickspin-mac-arm64`).
 - **Linux:** QuickSpin prefers an installed MariaDB/MySQL (`apt install mariadb-server`), because MariaDB's generic Linux archives need extra system libraries. Chromium needs the usual desktop libraries. On Linux arm64, install Chromium yourself, because there's no portable build to download.

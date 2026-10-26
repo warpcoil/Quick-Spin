@@ -257,6 +257,18 @@ func (a *App) caddyfileFor(v string) string {
 		} else {
 			w("\troot * %s", q(p.DocRoot()))
 			w("\tencode zstd br gzip")
+			if live := liveOrigin(p); live != "" {
+				// Media that was not copied is loaded from the live site.
+				w("\t@liveuploads {")
+				w("\t\tpath /wp-content/uploads/*")
+				w("\t\tnot file")
+				w("\t}")
+				w("\thandle @liveuploads {")
+				w("\t\treverse_proxy %s {", live)
+				w("\t\t\theader_up Host {upstream_hostport}")
+				w("\t\t}")
+				w("\t}")
+			}
 			w("\tphp_server {")
 			w("\t\tenv QUICKSPIN_SITE %s", p.Slug)
 			w("\t}")

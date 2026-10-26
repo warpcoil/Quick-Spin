@@ -54,6 +54,9 @@ type App struct {
 }
 
 func main() {
+	if askpassMain() { // QuickSpin is answering an ssh password prompt
+		return
+	}
 	root, err := portableRoot()
 	if err != nil {
 		fatal(err)

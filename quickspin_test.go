@@ -233,3 +233,65 @@ func TestKillLeftovers(t *testing.T) {
 		t.Fatalf("pid files not cleaned: %v", left)
 	}
 }
+
+func TestRemoteHelpers(t *testing.T) {
+	for in, want := range map[string]string{"www.acme-prod.co.uk": "acme-prod", "acme.com": "acme", "shop.client.io": "client", "prod": "prod", "10.0.0.5": "live-site"} {
+		if got := siteNameFromHost(in); got != want {
+			t.Errorf("siteNameFromHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string]string{"/var/www/html": `'/var/www/html'`, "~/sites/a b": `"$HOME"/'sites/a b'`, "/it's": `'/it'\''s'`} {
+		if got := rpath(in); got != want {
+			t.Errorf("rpath(%q) = %s, want %s", in, got, want)
+		}
+	}
+	cfg := parseWPConfig(`<?php
+// define('DB_NAME', 'commented_out');
+define( 'DB_NAME', 'acme_live' );
+define("DB_USER", "acme_wp");
+define( 'DB_PASSWORD', 'S3cr"et\'pw$x' );
+define( 'DB_HOST', 'localhost:/var/run/mysqld/mysqld.sock' );
+$table_prefix = 'acm_';`)
+	if cfg["DB_NAME"] != "acme_live" || cfg["DB_USER"] != "acme_wp" || cfg["DB_PASSWORD"] != `S3cr"et'pw$x` || cfg["table_prefix"] != "acm_" {
+		t.Fatalf("parseWPConfig: %#v", cfg)
+	}
+	opts := string(mysqlClientOptions("u", `p"w\x`, "localhost:/run/m.sock"))
+	if !strings.Contains(opts, `password="p\"w\\x"`) || !strings.Contains(opts, `socket="/run/m.sock"`) {
+		t.Fatalf("options: %s", opts)
+	}
+	if o := string(mysqlClientOptions("u", "p", "db.internal:3307")); !strings.Contains(o, "port=3307") {
+		t.Fatalf("port: %s", o)
+	}
+	r := RemoteSpec{Host: "deploy@example.com", Path: "/var/www/html/"}
+	if err := r.normalize(); err != nil || r.User != "deploy" || r.Host != "example.com" || r.Path != "/var/www/html" || r.Uploads != "copy" {
+		t.Fatalf("normalize: %+v %v", r, err)
+	}
+	for _, bad := range []RemoteSpec{{Host: "-oProxyCommand=x", Path: "/x"}, {Host: "a b", Path: "/x"}, {Host: "ok.com"}} {
+		if err := bad.normalize(); err == nil {
+			t.Errorf("accepted %+v", bad)
+		}
+	}
+}
+
+func TestPublishRules(t *testing.T) {
+	never := []string{"wp-config.php", "wp-content/object-cache.php.quickspin-off", "wp-content/object-cache.php", "wp-content/cache/page.html", ".git/HEAD", "wp-content/updraft/backup.zip"}
+	for _, p := range never {
+		if !publishSkip(p) {
+			t.Errorf("%s should never be published", p)
+		}
+	}
+	for _, p := range []string{"index.php", "wp-content/themes/x/style.css", "wp-content/uploads/2026/10/a.jpg", "wp-content/cache-local.txt", "sub/wp-config.php"} {
+		if publishSkip(p) {
+			t.Errorf("%s should be publishable", p)
+		}
+	}
+	if !isUpload("wp-content/uploads/a.jpg") || isUpload("wp-content/themes/a.jpg") {
+		t.Error("isUpload")
+	}
+	re := regexp.MustCompile(strings.ReplaceAll(publishExportRegex("acme.test"), `(?![\w-]|\.[\w-])`, `\b`))
+	for in, match := range map[string]bool{"http://acme.test/x": true, "//acme.test/x": true, `https:\/\/acme.test\/x`: true, "acme.test": false} {
+		if re.MatchString(in) != match {
+			t.Errorf("export regex on %q: want %v", in, match)
+		}
+	}
+}

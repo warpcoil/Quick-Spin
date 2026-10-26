@@ -45,3 +45,13 @@ func killProcess(pid int) {
 	}
 	syscall.Kill(pid, syscall.SIGKILL)
 }
+
+// newSession detaches a child from the terminal, so ssh asks SSH_ASKPASS
+// for passwords instead of prompting on the console.
+func newSession(cmd *exec.Cmd) {
+	setDeathSignal(cmd)
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setsid = true
+}
